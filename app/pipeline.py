@@ -10,6 +10,7 @@ from collections.abc import Callable
 from app import issuers as issuer_codes
 from app import reply, verdict
 from app.checks import ask, source
+from app.checks import items as lone_items
 from app.checks import issuer as issuer_check
 from app.checks.issuer import IssuerLookup
 from app.config import ENGINE_VERSION, settings
@@ -30,7 +31,8 @@ def strip_test_footer(text: str) -> str:
 
 
 def is_readable(text: str) -> bool:
-    return len(re.findall(r"[^\W\d_]{2,}", text)) >= 2
+    """At least two words. Devanagari counts in full: its vowel signs are not letters to Python's \\w."""
+    return len(re.findall(r"(?:[^\W\d_]|[\u0900-\u0963\u0970-\u097F]){2,}", text)) >= 2
 
 
 def sha256_text(text: str) -> str:
@@ -52,7 +54,10 @@ def is_known_fake(sha256: str, payees: list[str] = (), known: KnownFake | None =
     """Approved in the database, or in the read-only seed list data/registry/known_fakes.json."""
     seed = known_fakes()
     seed_payees = {normalize_payee(p) for p in seed.get("payees", [])}
-    if sha256 in seed.get("hashes", []) or any(normalize_payee(p) in seed_payees for p in payees):
+    seed_domains = {f"domain:{d.lower()}" for d in seed.get("domains", [])}
+    if sha256 in seed.get("hashes", []) or any(
+        p in seed_domains if p.startswith("domain:") else normalize_payee(p) in seed_payees for p in payees
+    ):
         return True
     return known is not None and known(sha256, list(payees))
 
@@ -108,15 +113,21 @@ def analyse_text(
     codes = list(dict.fromkeys([*codes, *issuer_codes.find_codes(text)]))
     # Trinetra's own stamp (the verify line and link) is not part of the notice.
     text = issuer_codes.strip_stamp(text)
-    readable = is_readable(text)
+    fields = field_extractor.extract(text) if text.strip() else Fields()
+    # A lone link, UPI ID or phone number has little text, but there is something to check and explain.
+    lone = lone_items.bare_kind(text, fields) if text.strip() else None
+    readable = is_readable(text) or lone is not None
+    if not readable:
+        fields = Fields()
     # A text too short to check still shows its script, so a one-word Hindi message is answered in Hindi.
     lang = lang or (reply.detect_lang(text) if readable or (kind is Kind.TEXT and text.strip()) else fallback_lang)
 
-    fields = field_extractor.extract(text) if readable else Fields()
     issued = issuer_check.run(text, fields, codes, issuers) if readable else issuer_check.IssuerCheck()
     issuer = issued.issuer or issuer_context
     signals = issued.signals + source.run(fields, issuer) + ask.run(fields, text, issuer) if readable else []
-    matched = readable and is_known_fake(sha256, fields.payees, known)
+    signals += lone_items.notes(lone, fields, issuers)
+    domains = [f"domain:{lone_items.domain(u)}" for u in fields.urls]
+    matched = readable and is_known_fake(sha256, fields.payees + domains, known)
 
     v, row = verdict.decide(kind, signals, matched, issued.proven, readable, altered=issued.altered)
     group = reply.sender_group(fields.sender_type, fields.sender_id)

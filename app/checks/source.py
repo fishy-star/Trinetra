@@ -85,6 +85,20 @@ def non_official_contact(fields: Fields, issuer: dict[str, Any] | None = None) -
     )
 
 
+def unverifiable_identity(fields: Fields) -> Signal | None:
+    who = fields.claimed_identity
+    if not who:
+        return None
+    if who == "your bank":
+        en = "It says it is from your bank but never says which bank, so you cannot check it."
+        hi = "यह कहता है कि यह आपके बैंक से है, लेकिन बैंक का नाम नहीं बताता, इसलिए आप इसकी जाँच नहीं कर सकते।"
+    else:
+        en = f"It claims to be {who}, which a message cannot prove. Famous names are a common scam lure."
+        hi = f"यह {who} होने का दावा करता है, जिसे कोई संदेश साबित नहीं कर सकता। मशहूर नाम ठगी का आम तरीका हैं।"
+    return Signal("source", "source.claimed_identity_unverifiable", Strength.WEAK, PointsTo.FAKE, en, hi)
+
+
 def run(fields: Fields, issuer: dict[str, Any] | None = None) -> list[Signal]:
     """`issuer`: the portal issuer the notice comes from or claims, whose own domains and payees count as official."""
-    return [s for s in (payee_mismatch(fields, issuer), non_official_contact(fields, issuer)) if s]
+    found = (payee_mismatch(fields, issuer), non_official_contact(fields, issuer), unverifiable_identity(fields))
+    return [s for s in found if s]

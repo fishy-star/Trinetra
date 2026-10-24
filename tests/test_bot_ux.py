@@ -128,7 +128,7 @@ def test_short_reply_shape(phone):
     line, reason, action, footer = blocks
     assert line == "Likely fake. Do not pay."
     assert len(re.findall(r"[.!?](\s|$)", reason)) == 1  # one sentence
-    assert action == reply.SHORT_ACTION_FAKE["finance"]["en"]
+    assert action == reply.CREDENTIAL_ACTION["en"]  # T1 asks you to update your PAN through a link
     assert footer == "Automated check · not yet reviewed by a person"
     assert "Reply 1" not in verdict and "Reply 2" not in verdict
 

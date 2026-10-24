@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app import packet, ui
+from app import packet, registry, ui
 from app.auth import LoginLimiter, Sessions, client_of
 from app.config import settings
 from app.evidence import CONTENT_TYPES, EvidenceStore, IntegrityError, write_once
@@ -384,7 +384,15 @@ def review(
     c.store.review(case_id, user, action, note)
     c.store.audit(user, f"review_{action}", f"case={case_id}")
     if action == "approve_fake":
-        c.store.add_known_fakes(case_id, user, sorted({r["sha256"] for r in reports}), c.store.case_payees(case_id))
+        # Links in an approved fake case that are not official become known fakes too, so a lone forward of
+        # the same link is caught at once.
+        domains = sorted({
+            u.split("/", 1)[0].lower().removeprefix("www.")
+            for r in reports for u in json.loads(r["fields_json"]).get("urls", [])
+            if not registry.is_official_domain(u.split("/", 1)[0])
+        })
+        c.store.add_known_fakes(case_id, user, sorted({r["sha256"] for r in reports}), c.store.case_payees(case_id),
+                                domains)
         # Evidence is locked only now. Before approval a user's DELETE could still erase it.
         locked = sum(c.evidence.lock(Path(r["evidence_path"])) for r in reports if Path(r["evidence_path"]).exists())
         c.store.audit(user, "evidence_locked", f"case={case_id} files={locked}")

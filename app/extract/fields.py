@@ -104,6 +104,11 @@ def extract(text: str) -> Fields:
         threatens_user=lexicon.threatens_arrest(text, demands_payment or bool(upi_ids or accounts)),
         asks_secrecy=lexicon.asks_secrecy(text),
         deadline_hours=lexicon.deadline_hours(text),
+        asks_for_money=demands_payment or lexicon.asks_for_money(text),
+        asks_for_credentials=lexicon.asks_for_credentials(text),
+        offers_reward=lexicon.offers_reward(text),
+        threatens_account=lexicon.threatens_account(text),
+        claimed_identity=lexicon.claimed_identity(text, sender),
     )
 
 

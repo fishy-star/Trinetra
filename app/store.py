@@ -508,10 +508,13 @@ class Store:
 
     # --- known fakes ------------------------------------------------------------
 
-    def add_known_fakes(self, case_id: int, reviewer: str, hashes: list[str], payees: list[str]) -> None:
+    def add_known_fakes(
+        self, case_id: int, reviewer: str, hashes: list[str], payees: list[str], domains: list[str] = ()
+    ) -> None:
         at = now().isoformat()
         rows = [("hash", h, case_id, at, reviewer) for h in hashes]
         rows += [("payee", normalize_payee(p), case_id, at, reviewer) for p in payees if normalize_payee(p)]
+        rows += [("domain", d.lower(), case_id, at, reviewer) for d in domains if d]
         with self._db() as db:
             db.executemany("INSERT OR IGNORE INTO known_fakes VALUES (?, ?, ?, ?, ?)", rows)
 
@@ -521,7 +524,13 @@ class Store:
             db.execute("DELETE FROM known_fakes WHERE case_id = ?", (case_id,))
 
     def is_known_fake(self, sha256: str, payees: list[str] = ()) -> bool:
-        keys = [("hash", sha256)] + [("payee", normalize_payee(p)) for p in payees if normalize_payee(p)]
+        """`payees` may also hold "domain:<host>" entries, for links from confirmed fakes."""
+        keys = [("hash", sha256)]
+        for p in payees:
+            if p.startswith("domain:"):
+                keys.append(("domain", p[7:].lower()))
+            elif normalize_payee(p):
+                keys.append(("payee", normalize_payee(p)))
         with self._db() as db:
             return any(
                 db.execute("SELECT 1 FROM known_fakes WHERE kind = ? AND value = ? LIMIT 1", key).fetchone()

@@ -1,0 +1,31 @@
+id,text,expected_verdict,what_it_tests
+A01,Hello this is Elon Musk. I am very poo right now and I need money fast plz. Give me 3000 indian rupees because im in India right now ok. And I’m need to get back to my home country to make mars rocket and I will give u 1 million dollars ok. plz trust me I will give u a free tesla to,suspicious,celebrity asking for money with a huge reward (given exactly)
+A02,BANK ALERT: We detected suspicious activity on your debit card. Your account has been temporarily locked. Verify your identity immediately,suspicious,"bank phishing: suspicious activity, locked account, verify identity (given exactly)"
+A03,"Hi Mom, this is my new number, my old phone broke. I need to pay a bill urgently, can you send 15000 to this account today? I'll explain later, can't talk right now.",likely_fake_or_suspicious,relative on a new number asking for money
+A04,"Papa main hospital mein hoon, phone kharab ho gaya. Jaldi 20000 rupaye is UPI pe bhejo rahul.help@okicici. Mummy ko mat batana.",likely_fake_or_suspicious,"Hinglish relative emergency, UPI payee, secrecy"
+A05,"Dear Customer, your SBI YONO account will be suspended today. Update your PAN card now at http://sbi-yono-kyc.in-verify.co to avoid blocking.",likely_fake_or_suspicious,named-bank KYC phishing with a lookalike link
+A06,"प्रिय ग्राहक, आपका बैंक खाता आज रात बंद हो जाएगा। तुरंत KYC अपडेट करें: bit.ly/kyc-update-now",likely_fake_or_suspicious,Hindi KYC phishing with a short link
+A07,Your Amazon order is on hold due to address issue. Share the OTP sent to your phone with our delivery agent to release it.,likely_fake_or_suspicious,OTP request disguised as a delivery problem
+A08,"Congratulations! Your number has won Rs 25,00,000 in the KBC lucky draw. To claim your prize, pay the processing fee of Rs 12,500 to kbc.lottery@paytm.",likely_fake_or_suspicious,lottery prize with a fee to a UPI ID
+A09,"बधाई हो! आपने ₹10 लाख की लॉटरी जीती है। इनाम पाने के लिए ₹5,000 GST इस खाते में जमा करें।",likely_fake_or_suspicious,Hindi lottery with a tax fee
+A10,Part-time job! Earn Rs 3000 daily by liking YouTube videos. The first task needs a Rs 500 deposit and you get Rs 1500 back today. Join on Telegram @earn_daily_tasks,likely_fake_or_suspicious,task scam: pay a deposit to earn more
+A11,Ghar baithe kamao 5000 roz! Sirf 999 registration fee bhejo is number pe 9876543210 aur turant kaam shuru karo,likely_fake_or_suspicious,Hinglish job scam with a registration fee
+A12,"Your parcel from UK is held at Delhi customs. Pay customs duty of Rs 35,000 today to release it, or it will be returned and legal action may be taken.",likely_fake_or_suspicious,"parcel stuck at customs, pay duty today"
+A13,"This is FedEx. A parcel in your name contains drugs and fake passports. Your case has been transferred to Mumbai Cyber Crime. Do not disconnect. Pay 50,000 security amount to clear your name.",likely_fake_or_suspicious,FedEx-to-police digital arrest opener
+A14,"Dear consumer, your electricity power will be disconnected tonight at 9.30 pm because your previous month bill was not updated. Please immediately contact our electricity officer 9876012345.",likely_fake_or_suspicious,electricity cut-off threat with a mobile number
+A15,"प्रिय उपभोक्ता, आपका बिजली कनेक्शन आज रात 9:30 बजे काट दिया जाएगा क्योंकि पिछला बिल अपडेट नहीं हुआ। तुरंत बिजली अधिकारी से 9876012345 पर संपर्क करें।",likely_fake_or_suspicious,Hindi electricity cut-off threat
+A16,"Main CBI officer bol raha hoon. Aapke Aadhaar se money laundering hua hai. Arrest se bachne ke liye abhi 25000 bhejo, kisi ko mat batana.",likely_fake_or_suspicious,Hinglish fake CBI text with arrest threat and secrecy
+A17,"Invest just Rs 2,000 today and get Rs 20,000 in 7 days, guaranteed. 100% safe. Send to invest.guru@ybl and share the screenshot.",likely_fake_or_suspicious,"pay a little, get a lot"
+A18,"Bhai sirf 1000 bhejo, 1 ghante mein 10000 wapas milega, trust me, pakka scheme hai",likely_fake_or_suspicious,Hinglish money doubling
+A19,"Income Tax refund of Rs 15,490 has been approved. To receive it, verify your bank account details at incometax-refund-gov.in/claim",likely_fake_or_suspicious,tax refund phishing with a lookalike domain
+A20,"Namaste, main Mukesh Ambani ki team se hoon. Aapko Jio ki taraf se 50 lakh ka inaam mila hai. 5000 processing fee bhejiye.",likely_fake_or_suspicious,Hinglish celebrity prize with a fee
+N01,123456 is your OTP for login to HDFC Bank NetBanking. Valid for 5 minutes. Do not share it with anyone. HDFC Bank will never ask for your OTP.,cannot_verify,a real OTP SMS
+N02,Your Amazon order #402-8812345 has been shipped and will arrive tomorrow. Track it in the Amazon app.,cannot_verify,a delivery update
+N03,"Hey, dinner came to 2400, your share is 600. Send it to my UPI priya.s@okaxis whenever you can, no rush!",cannot_verify,a friend asking to split a bill
+N04,"SBI never asks for your PIN, OTP or CVV over phone, SMS or email. Do not share them with anyone. Report fraud at 1930.",cannot_verify,a bank's genuine never-share warning
+N05,"बेटा, खाना खा लिया? शाम को फ़ोन करना।",cannot_verify,Hindi family message
+N06,"Rs 1,250.00 debited from your a/c XX9012 on 23-10-26 for UPI to swiggy@icici. Not you? Call 1800-1234-567 immediately.",cannot_verify,a genuine debit alert
+N07,"Kal movie chalein? Tickets maine book kar liye, tu baad mein paise de dena.",cannot_verify,"Hinglish friend, pay me back later"
+N08,"Dear consumer, your electricity bill of Rs 1,840 for October is generated. Due date 05-11-2026. Pay in the official app or at the office.",cannot_verify,a genuine electricity bill
+N09,Your appointment with Dr. Mehta is confirmed for Monday 10 AM. Reply C to cancel.,cannot_verify,an appointment reminder
+N10,Your account statement for September is ready. Log in to net banking to view it.,cannot_verify,a genuine account statement notice

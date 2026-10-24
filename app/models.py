@@ -25,11 +25,13 @@ class Strength(str, Enum):
     STRONG = "strong"
     WEAK = "weak"
     PROOF = "proof"
+    INFO = "info"  # what we found, e.g. where a lone link goes; never counts toward a verdict
 
 
 class PointsTo(str, Enum):
     FAKE = "fake"
     GENUINE = "genuine"
+    NEUTRAL = "neutral"
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,11 @@ class Fields:
     threatens_user: bool = False
     asks_secrecy: bool = False
     deadline_hours: float | None = None
+    asks_for_money: bool = False  # someone asks you to send, give or transfer money (any payee, or none)
+    asks_for_credentials: bool = False  # verify identity, update KYC, share an OTP, PIN or card details
+    offers_reward: bool = False  # a prize, lottery, big return, or "I will give you X"
+    threatens_account: bool = False  # account locked or blocked, service cut off, suspicious activity
+    claimed_identity: str | None = None  # a famous person, or "your bank" without naming it
 
     @property
     def payees(self) -> list[str]:

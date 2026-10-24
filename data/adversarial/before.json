@@ -1,0 +1,450 @@
+{
+ "run_at": "2026-10-24 17:27",
+ "engine": "0.2.0",
+ "rows": [
+  {
+   "id": "A01",
+   "text": "Hello this is Elon Musk. I am very poo right now and I need money fast plz. Give me 3000 indian rupees because im in India right now ok. And I’m need to get back to my home country to make mars rocket and I will give u 1 million dollars ok. plz trust me I will give u a free tesla to",
+   "expected": "suspicious",
+   "what": "celebrity asking for money with a huge reward (given exactly)",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A02",
+   "text": "BANK ALERT: We detected suspicious activity on your debit card. Your account has been temporarily locked. Verify your identity immediately",
+   "expected": "suspicious",
+   "what": "bank phishing: suspicious activity, locked account, verify identity (given exactly)",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A03",
+   "text": "Hi Mom, this is my new number, my old phone broke. I need to pay a bill urgently, can you send 15000 to this account today? I'll explain later, can't talk right now.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "relative on a new number asking for money",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A04",
+   "text": "Papa main hospital mein hoon, phone kharab ho gaya. Jaldi 20000 rupaye is UPI pe bhejo rahul.help@okicici. Mummy ko mat batana.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hinglish relative emergency, UPI payee, secrecy",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A05",
+   "text": "Dear Customer, your SBI YONO account will be suspended today. Update your PAN card now at http://sbi-yono-kyc.in-verify.co to avoid blocking.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "named-bank KYC phishing with a lookalike link",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A06",
+   "text": "प्रिय ग्राहक, आपका बैंक खाता आज रात बंद हो जाएगा। तुरंत KYC अपडेट करें: bit.ly/kyc-update-now",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hindi KYC phishing with a short link",
+   "scam": true,
+   "got": "suspicious",
+   "rule_row": "R4",
+   "signals": [
+    [
+     "source.non_official_contact",
+     "strong",
+     "It claims to come from an official body but gives a website that is not an official government or bank site as the contact. Official bodies do not use these."
+    ],
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": true
+  },
+  {
+   "id": "A07",
+   "text": "Your Amazon order is on hold due to address issue. Share the OTP sent to your phone with our delivery agent to release it.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "OTP request disguised as a delivery problem",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A08",
+   "text": "Congratulations! Your number has won Rs 25,00,000 in the KBC lucky draw. To claim your prize, pay the processing fee of Rs 12,500 to kbc.lottery@paytm.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "lottery prize with a fee to a UPI ID",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A09",
+   "text": "बधाई हो! आपने ₹10 लाख की लॉटरी जीती है। इनाम पाने के लिए ₹5,000 GST इस खाते में जमा करें।",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hindi lottery with a tax fee",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A10",
+   "text": "Part-time job! Earn Rs 3000 daily by liking YouTube videos. The first task needs a Rs 500 deposit and you get Rs 1500 back today. Join on Telegram @earn_daily_tasks",
+   "expected": "likely_fake_or_suspicious",
+   "what": "task scam: pay a deposit to earn more",
+   "scam": true,
+   "got": "suspicious",
+   "rule_row": "R4",
+   "signals": [
+    [
+     "ask.payment_to_non_official_payee",
+     "strong",
+     "It asks you to send money to a non-official account, with pressure: a short deadline. Real authorities do not ask for money this way."
+    ],
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": true
+  },
+  {
+   "id": "A11",
+   "text": "Ghar baithe kamao 5000 roz! Sirf 999 registration fee bhejo is number pe 9876543210 aur turant kaam shuru karo",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hinglish job scam with a registration fee",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A12",
+   "text": "Your parcel from UK is held at Delhi customs. Pay customs duty of Rs 35,000 today to release it, or it will be returned and legal action may be taken.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "parcel stuck at customs, pay duty today",
+   "scam": true,
+   "got": "suspicious",
+   "rule_row": "R4",
+   "signals": [
+    [
+     "ask.payment_to_non_official_payee",
+     "strong",
+     "It asks you to send money to a non-official account, with pressure: a short deadline, a promised refund. Real authorities do not ask for money this way."
+    ],
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ],
+    [
+     "ask.refund_promise",
+     "weak",
+     "It promises to return your money after 'verification'. This is a common scam trick."
+    ]
+   ],
+   "correct": true
+  },
+  {
+   "id": "A13",
+   "text": "This is FedEx. A parcel in your name contains drugs and fake passports. Your case has been transferred to Mumbai Cyber Crime. Do not disconnect. Pay 50,000 security amount to clear your name.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "FedEx-to-police digital arrest opener",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A14",
+   "text": "Dear consumer, your electricity power will be disconnected tonight at 9.30 pm because your previous month bill was not updated. Please immediately contact our electricity officer 9876012345.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "electricity cut-off threat with a mobile number",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A15",
+   "text": "प्रिय उपभोक्ता, आपका बिजली कनेक्शन आज रात 9:30 बजे काट दिया जाएगा क्योंकि पिछला बिल अपडेट नहीं हुआ। तुरंत बिजली अधिकारी से 9876012345 पर संपर्क करें।",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hindi electricity cut-off threat",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A16",
+   "text": "Main CBI officer bol raha hoon. Aapke Aadhaar se money laundering hua hai. Arrest se bachne ke liye abhi 25000 bhejo, kisi ko mat batana.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hinglish fake CBI text with arrest threat and secrecy",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.arrest_threat",
+     "weak",
+     "It threatens you with arrest. No police, CBI, ED or court arrests anyone on a phone or video call."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "A17",
+   "text": "Invest just Rs 2,000 today and get Rs 20,000 in 7 days, guaranteed. 100% safe. Send to invest.guru@ybl and share the screenshot.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "pay a little, get a lot",
+   "scam": true,
+   "got": "suspicious",
+   "rule_row": "R4",
+   "signals": [
+    [
+     "ask.payment_to_non_official_payee",
+     "strong",
+     "It asks you to send money to a non-official account, with pressure: a short deadline. Real authorities do not ask for money this way."
+    ],
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": true
+  },
+  {
+   "id": "A18",
+   "text": "Bhai sirf 1000 bhejo, 1 ghante mein 10000 wapas milega, trust me, pakka scheme hai",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hinglish money doubling",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A19",
+   "text": "Income Tax refund of Rs 15,490 has been approved. To receive it, verify your bank account details at incometax-refund-gov.in/claim",
+   "expected": "likely_fake_or_suspicious",
+   "what": "tax refund phishing with a lookalike domain",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "A20",
+   "text": "Namaste, main Mukesh Ambani ki team se hoon. Aapko Jio ki taraf se 50 lakh ka inaam mila hai. 5000 processing fee bhejiye.",
+   "expected": "likely_fake_or_suspicious",
+   "what": "Hinglish celebrity prize with a fee",
+   "scam": true,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "N01",
+   "text": "123456 is your OTP for login to HDFC Bank NetBanking. Valid for 5 minutes. Do not share it with anyone. HDFC Bank will never ask for your OTP.",
+   "expected": "cannot_verify",
+   "what": "a real OTP SMS",
+   "scam": false,
+   "got": "suspicious",
+   "rule_row": "R4",
+   "signals": [
+    [
+     "ask.secrecy",
+     "weak",
+     "It tells you to keep this secret from your family, friends or bank. Real authorities never ask this."
+    ],
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": false
+  },
+  {
+   "id": "N02",
+   "text": "Your Amazon order #402-8812345 has been shipped and will arrive tomorrow. Track it in the Amazon app.",
+   "expected": "cannot_verify",
+   "what": "a delivery update",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": true
+  },
+  {
+   "id": "N03",
+   "text": "Hey, dinner came to 2400, your share is 600. Send it to my UPI priya.s@okaxis whenever you can, no rush!",
+   "expected": "cannot_verify",
+   "what": "a friend asking to split a bill",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": true
+  },
+  {
+   "id": "N04",
+   "text": "SBI never asks for your PIN, OTP or CVV over phone, SMS or email. Do not share them with anyone. Report fraud at 1930.",
+   "expected": "cannot_verify",
+   "what": "a bank's genuine never-share warning",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.secrecy",
+     "weak",
+     "It tells you to keep this secret from your family, friends or bank. Real authorities never ask this."
+    ]
+   ],
+   "correct": true
+  },
+  {
+   "id": "N05",
+   "text": "बेटा, खाना खा लिया? शाम को फ़ोन करना।",
+   "expected": "cannot_verify",
+   "what": "Hindi family message",
+   "scam": false,
+   "got": "could_not_check",
+   "rule_row": "R0",
+   "signals": [],
+   "correct": false
+  },
+  {
+   "id": "N06",
+   "text": "Rs 1,250.00 debited from your a/c XX9012 on 23-10-26 for UPI to swiggy@icici. Not you? Call 1800-1234-567 immediately.",
+   "expected": "cannot_verify",
+   "what": "a genuine debit alert",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [
+    [
+     "ask.urgent_deadline",
+     "weak",
+     "It gives you very little time to act. Scammers rush you so you cannot check."
+    ]
+   ],
+   "correct": true
+  },
+  {
+   "id": "N07",
+   "text": "Kal movie chalein? Tickets maine book kar liye, tu baad mein paise de dena.",
+   "expected": "cannot_verify",
+   "what": "Hinglish friend, pay me back later",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": true
+  },
+  {
+   "id": "N08",
+   "text": "Dear consumer, your electricity bill of Rs 1,840 for October is generated. Due date 05-11-2026. Pay in the official app or at the office.",
+   "expected": "cannot_verify",
+   "what": "a genuine electricity bill",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": true
+  },
+  {
+   "id": "N09",
+   "text": "Your appointment with Dr. Mehta is confirmed for Monday 10 AM. Reply C to cancel.",
+   "expected": "cannot_verify",
+   "what": "an appointment reminder",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": true
+  },
+  {
+   "id": "N10",
+   "text": "Your account statement for September is ready. Log in to net banking to view it.",
+   "expected": "cannot_verify",
+   "what": "a genuine account statement notice",
+   "scam": false,
+   "got": "cannot_verify",
+   "rule_row": "R5",
+   "signals": [],
+   "correct": true
+  }
+ ]
+}

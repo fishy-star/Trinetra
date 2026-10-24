@@ -4,6 +4,9 @@
     python tools/evaluate.py --split test --markdown docs/RESULTS.md   # once, at the end
     python tools/evaluate.py --sms data/external/sms_spam/SMSSpamCollection --results docs/RESULTS.md
                                                                 # real-world check on public SMS
+    python tools/evaluate.py --adversarial data/adversarial/cases.csv --snapshot data/adversarial/before.json
+    python tools/evaluate.py --adversarial data/adversarial/cases.csv --compare data/adversarial/before.json \
+        --results docs/RESULTS.md                               # adversarial check, before and after
 
 Runs offline. Expected verdicts come from data/test-set/labels.csv and are never changed here.
 """
@@ -12,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 import random
 import re
 import statistics
@@ -423,6 +428,125 @@ def write_sms_section(results: Path, section: str) -> None:
     results.write_text(existing.rstrip("\n") + "\n\n" + section, encoding="utf-8")
 
 
+# --- adversarial check: messages judges might try ---------------------------------------------------
+
+ADV_SECTION = "## Adversarial check (before and after)"
+# What changed between the before and after runs, for the record. The rule table (R0 to R5) is unchanged:
+# new signals feed into it, and "likely fake" still needs STRONG signals from two different checks.
+ADV_CHANGES = [
+    "New STRONG `ask.money_request`: someone asks you to send, give or transfer money (any payee, English, Hindi or "
+    "Hinglish such as \"paise bhejo\"), together with something pushing you: urgency, secrecy, a threat, a reward or "
+    "a claimed identity. Without that push it does not fire, so a friend splitting a bill is not flagged.",
+    "New STRONG `ask.credential_request`: verify your identity, update KYC or PAN, share an OTP, PIN or CVV, confirm "
+    "card details, re-activate your account (including \"KYC update karo\", \"OTP batao\"). Not when the sentence "
+    "says \"never\" or sends you to the branch.",
+    "New WEAK `ask.reward_for_payment`: a prize, lottery, big return or \"I will give you X\" alongside a request for money.",
+    "New WEAK `source.claimed_identity_unverifiable`: claims to be a famous person, or says \"your bank\" without naming it.",
+    "New WEAK `ask.account_threat`: account locked, blocked or suspended, a service cut off, \"suspicious activity\" "
+    "(English, Hindi, Hinglish).",
+    "Pressure words added to the urgency signal: \"fast\", \"trust me\", \"asap\", \"abhi\", \"jaldi\", \"turant\".",
+    "Legal-threat words added to the arrest-threat signal: \"clear your name\", \"legal action\", \"a case has been "
+    "filed against you\", and \"cyber crime\" units as a police sender. Added after seeing case A13 missed.",
+    "Common bank names (SBI, HDFC, ICICI, Axis, PNB, Kotak and others) and \"Income Tax\" recognised as claimed senders.",
+    "False-alarm fixes: \"Do not share it with anyone\" in a message about an OTP or PIN is advice, not secrecy; "
+    "\"Valid for 5 minutes\" is how long a code works, not a deadline. Seen on case N01.",
+    "Bug fix (not tuning): Python does not count Devanagari vowel signs as letters, so short Hindi messages such as "
+    "N05 were wrongly rated \"could not check\". Readability now counts Devanagari properly.",
+    "Lone inputs: a bare link, UPI ID or phone number now gets a note saying what we found (official domain or not, "
+    "validated handle or not, owner unknown, 1930 is the helpline) instead of \"could not check\"; a link or payee "
+    "from a reviewer-confirmed fake is answered as a known fake. These notes never count toward a verdict.",
+    "Replies: a credential request gets \"Banks never ask you to verify through a message. Call the number on the back "
+    "of your card.\" \"We found no warning signs\" now appears only when nothing at all was found.",
+]
+
+
+def run_adversarial(path: Path) -> list[dict]:
+    with open(path, encoding="utf-8") as f:
+        cases = list(csv.DictReader(f))
+    out = []
+    for c in cases:
+        result = pipeline.check_text(c["text"], kind=Kind.TEXT)
+        out.append({
+            "id": c["id"], "text": c["text"], "expected": c["expected_verdict"], "what": c["what_it_tests"],
+            "scam": c["expected_verdict"] != "cannot_verify", "got": result.verdict.value, "rule_row": result.rule_row,
+            "signals": [[s.code, s.strength.value, s.reason_en] for s in result.signals],
+            "correct": result.verdict.value in expected_verdicts(c["expected_verdict"]),
+        })
+    return out
+
+
+def adversarial_counts(rows: list[dict]) -> dict:
+    scams = [r for r in rows if r["scam"]]
+    normal = [r for r in rows if not r["scam"]]
+    return {
+        "correct": sum(r["correct"] for r in rows), "total": len(rows),
+        "scams": len(scams), "scams_flagged": sum(r["got"] in FLAGGED for r in scams),
+        "normal": len(normal), "normal_flagged": sum(r["got"] in FLAGGED for r in normal),
+    }
+
+
+def adversarial_console(rows: list[dict]) -> list[str]:
+    c = adversarial_counts(rows)
+    lines = [f"Adversarial: {c['correct']}/{c['total']} as expected; scams flagged {c['scams_flagged']}/{c['scams']}; "
+             f"normal messages flagged {c['normal_flagged']}/{c['normal']}"]
+    for r in rows:
+        mark = "ok  " if r["correct"] else "MISS"
+        lines.append(f"  {mark} {r['id']} expected {r['expected']:<26} got {r['got']:<16} {r['rule_row']:<3} "
+                     f"{', '.join(code for code, _, _ in r['signals']) or '-'}")
+    return lines
+
+
+def adversarial_section(before: dict, after: list[dict], cases: Path) -> str:
+    b, a = adversarial_counts(before["rows"]), adversarial_counts(after)
+    by_id = {r["id"]: r for r in before["rows"]}
+    digest = hashlib.sha256(cases.read_bytes()).hexdigest()
+    md = [ADV_SECTION, "",
+          f"Thirty short messages a judge might try: {a['scams']} scams written from common real-world patterns "
+          "(relatives and celebrities asking for money, bank and KYC phishing, lotteries, job and task scams, parcels "
+          "at customs, electricity cut-offs, fake police texts, \"pay a little, get a lot\") and "
+          f"{a['normal']} normal messages that must not be flagged, in English, Hindi and Hinglish. The cases are in "
+          f"`{cases}` (SHA-256 `{digest[:16]}…`) and were written, and the \"before\" run recorded "
+          f"({before['run_at']} UTC, engine {before['engine']}), before any signal was added.", "",
+          "| | Before | After |", "| --- | --- | --- |",
+          f"| As expected | {b['correct']}/{b['total']} | {a['correct']}/{a['total']} |",
+          f"| Scams flagged (likely fake or suspicious) | {b['scams_flagged']}/{b['scams']} | "
+          f"{a['scams_flagged']}/{a['scams']} |",
+          f"| Normal messages flagged (false alarms) | {b['normal_flagged']}/{b['normal']} | "
+          f"{a['normal_flagged']}/{a['normal']} |", "",
+          "**How to read the after column.** The new signals were designed after seeing the before results on these "
+          "same cases, so the after column shows the fixes work, not how Trinetra does on unseen scams. The independent "
+          "checks are the unchanged test split and the public SMS sample, both rerun after the change (sections above).",
+          "", "### What changed", "", *[f"- {c}" for c in ADV_CHANGES], "",
+          "### Every case", "",
+          "| Case | What it tests | Expected | Before | After |", "| --- | --- | --- | --- | --- |"]
+    for r in after:
+        old = by_id.get(r["id"], {})
+        mark = lambda row: f"{row.get('got', '?')} ({row.get('rule_row', '')})" + ("" if row.get("correct") else " ✗")  # noqa: E731
+        md.append(f"| {r['id']} | {_md_text(r['what'])} | {r['expected']} | {mark(old)} | {mark(r)} |")
+    wrong = [r for r in after if not r["correct"]]
+    md += ["", "### Still wrong after the change", ""]
+    for r in wrong:
+        signals = ", ".join(f"`{code}` ({strength})" for code, strength, _ in r["signals"]) or "none"
+        md.append(f"- **{r['id']}** ({_md_text(r['what'])}): expected {r['expected']}, got **{r['got']}** "
+                  f"(rule {r['rule_row']}; signals: {signals}).")
+    if not wrong:
+        md.append("None.")
+    md += ["", "### How to rerun", "", "```sh",
+           f"LLM_MODE=off STT_MODE=off AUDIO_MODEL=off .venv/bin/python tools/evaluate.py --adversarial {cases} "
+           f"--compare data/adversarial/before.json --results docs/RESULTS.md", "```", ""]
+    return "\n".join(md)
+
+
+def write_section(results: Path, heading: str, section: str) -> None:
+    """Add a section to RESULTS.md, replacing an earlier copy of it (up to the next top-level section)."""
+    text = results.read_text(encoding="utf-8") if results.exists() else ""
+    if heading in text:
+        start = text.index(heading)
+        nxt = text.find("\n## ", start + len(heading))
+        text = text[:start].rstrip("\n") + ("\n\n" + text[nxt + 1:] if nxt != -1 else "")
+    results.write_text(text.rstrip("\n") + "\n\n" + section, encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--split", choices=("dev", "test"), default="dev")
@@ -430,8 +554,24 @@ def main() -> None:
     parser.add_argument("--sms", type=Path, help="instead, run a sample of the UCI SMS Spam Collection file")
     parser.add_argument("--sample", type=int, default=SMS_SAMPLE, help="how many SMS to sample (default 500)")
     parser.add_argument("--seed", type=int, default=SMS_SEED, help="random seed for the SMS sample")
-    parser.add_argument("--results", type=Path, help="with --sms: append the SMS section to this RESULTS.md")
+    parser.add_argument("--results", type=Path, help="with --sms or --compare: add the section to this RESULTS.md")
+    parser.add_argument("--adversarial", type=Path, help="instead, run the adversarial cases CSV")
+    parser.add_argument("--snapshot", type=Path, help="with --adversarial: save this run as the 'before' JSON")
+    parser.add_argument("--compare", type=Path, help="with --adversarial: the 'before' JSON to compare against")
     args = parser.parse_args()
+    if args.adversarial:
+        rows = run_adversarial(args.adversarial)
+        print("\n".join(adversarial_console(rows)))
+        if args.snapshot:
+            args.snapshot.write_text(json.dumps({"run_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M"),
+                                                 "engine": ENGINE_VERSION, "rows": rows}, ensure_ascii=False, indent=1),
+                                     encoding="utf-8")
+            print(f"\nSaved {args.snapshot}")
+        if args.compare and args.results:
+            before = json.loads(args.compare.read_text(encoding="utf-8"))
+            write_section(args.results, ADV_SECTION, adversarial_section(before, rows, args.adversarial))
+            print(f"\nWrote the before/after section to {args.results}")
+        return
     if args.sms:
         rows, total = run_sms(args.sms, args.sample, args.seed)
         console, section = sms_report(rows, total, args.sms, args.sample, args.seed)

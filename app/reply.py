@@ -90,7 +90,7 @@ KNOWN_FAKE = {
 }
 
 CHECK_ORDER = ("source", "ask", "media")
-_RANK = {Strength.PROOF: 0, Strength.STRONG: 1, Strength.WEAK: 2}
+_RANK = {Strength.PROOF: 0, Strength.STRONG: 1, Strength.WEAK: 2, Strength.INFO: 3}
 
 
 def detect_lang(text: str) -> str:
@@ -102,6 +102,8 @@ def detect_lang(text: str) -> str:
 def reasons(verdict: Verdict, signals: list[Signal], lang: str) -> list[str]:
     """Up to three reasons, one per check that fired, strongest signal first."""
     wanted = PointsTo.GENUINE if verdict is Verdict.VERIFIED_OFFICIAL else PointsTo.FAKE
+    if not any(s.points_to is wanted for s in signals):
+        wanted = PointsTo.NEUTRAL  # nothing for or against: say what we found instead
     out = []
     for check in CHECK_ORDER:
         mine = sorted((s for s in signals if s.check == check and s.points_to is wanted), key=lambda s: _RANK[s.strength])
@@ -149,7 +151,13 @@ def build(
     if verify and verdict in (Verdict.SUSPICIOUS, Verdict.CANNOT_VERIFY):
         parts.append(verify)
     if verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
-        parts.append(ACTION_FAKE[sender][lang])
+        if _credential(signals):
+            parts.append(
+                f"{CREDENTIAL_ACTION[lang]} Reply 1 to report this. Reply 2 if you already paid." if lang == "en"
+                else f"{CREDENTIAL_ACTION[lang]} रिपोर्ट करने के लिए 1 भेजें। अगर आप भुगतान कर चुके हैं तो 2 भेजें।"
+            )
+        else:
+            parts.append(ACTION_FAKE[sender][lang])
     if kind is Kind.VOICE:
         parts.append(ACTION_VOICE[lang])
     parts.append((FOOTER_REVIEWED if reviewed else FOOTER_UNREVIEWED)[lang])
@@ -212,6 +220,11 @@ SHORT_ACTION_VOICE = {
     "en": "Call the person back on the number you already have for them before you send anything.",
     "hi": "कुछ भी भेजने से पहले उस व्यक्ति को उस नंबर पर वापस कॉल करें जो आपके पास पहले से है।",
 }
+# A credential request gets this action line instead of the one for who the message claims to be from.
+CREDENTIAL_ACTION = {
+    "en": "Banks never ask you to verify through a message. Call the number on the back of your card.",
+    "hi": "बैंक कभी भी संदेश के ज़रिए पुष्टि करने को नहीं कहते। अपने कार्ड के पीछे लिखे नंबर पर कॉल करें।",
+}
 FOOTER_SHORT = {
     False: {"en": "Automated check · not yet reviewed by a person", "hi": "स्वचालित जाँच · अभी किसी व्यक्ति ने समीक्षा नहीं की"},
     True: {"en": "Reviewed by the Trinetra team", "hi": "Trinetra टीम द्वारा समीक्षा की गई"},
@@ -226,10 +239,18 @@ def first_sentence(text: str) -> str:
 
 
 def _pointing(verdict: Verdict, signals: list[Signal]) -> list[Signal]:
-    """Signals that support the verdict, strongest first, source before ask before media."""
+    """Signals that support the verdict, strongest first, source before ask before media.
+
+    When none do, what we found instead (INFO notes such as where a lone link goes), so "no warning
+    signs" is said only when there was truly nothing to say.
+    """
     wanted = PointsTo.GENUINE if verdict is Verdict.VERIFIED_OFFICIAL else PointsTo.FAKE
-    mine = [s for s in signals if s.points_to is wanted]
+    mine = [s for s in signals if s.points_to is wanted] or [s for s in signals if s.points_to is PointsTo.NEUTRAL]
     return sorted(mine, key=lambda s: (_RANK[s.strength], _ORDER.get(s.check, 9)))
+
+
+def _credential(signals: list[Signal]) -> bool:
+    return any(s.code == "ask.credential_request" for s in signals)
 
 
 def strongest_reason(verdict: Verdict, signals: list[Signal], lang: str, reviewed: bool = False) -> str | None:
@@ -239,7 +260,9 @@ def strongest_reason(verdict: Verdict, signals: list[Signal], lang: str, reviewe
         return KNOWN_FAKE[lang]
     mine = _pointing(verdict, signals)
     if mine:
-        return first_sentence(mine[0].reason_hi if lang == "hi" else mine[0].reason_en)
+        reason = mine[0].reason_hi if lang == "hi" else mine[0].reason_en
+        # A note about a lone link, payee or number is short, and its advice is its second sentence: keep it whole.
+        return reason if mine[0].strength is Strength.INFO else first_sentence(reason)
     return first_sentence(NO_SIGNALS[lang])
 
 
@@ -252,7 +275,7 @@ def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender
     if kind is Kind.VOICE and verdict is not Verdict.COULD_NOT_CHECK:
         action = SHORT_ACTION_VOICE[lang]
     elif verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
-        action = SHORT_ACTION_FAKE[sender][lang]
+        action = CREDENTIAL_ACTION[lang] if _credential(signals) else SHORT_ACTION_FAKE[sender][lang]
     else:
         action = SHORT_ACTION[verdict][lang]
     reason = strongest_reason(verdict, signals, lang, reviewed)

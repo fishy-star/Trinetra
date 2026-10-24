@@ -32,6 +32,7 @@ def run(fields: Fields, text: str, issuer: dict[str, Any] | None = None) -> list
     text = lexicon.normalize(text)
     urgent = fields.deadline_hours is not None and fields.deadline_hours <= 24
     refund = lexicon.promises_refund(text)
+    reward = fields.offers_reward and fields.asks_for_money
 
     pressure_en: list[str] = []
     pressure_hi: list[str] = []
@@ -44,6 +45,16 @@ def run(fields: Fields, text: str, issuer: dict[str, Any] | None = None) -> list
         if on:
             pressure_en.append(en)
             pressure_hi.append(hi)
+    # What makes a request for money a scam signal and not a friend splitting a bill: something pushing you.
+    lure_en, lure_hi = list(pressure_en), list(pressure_hi)
+    for on, en, hi in (
+        (fields.threatens_account, "a threat to your account", "आपके खाते को लेकर धमकी"),
+        (reward, "a promised reward", "इनाम का लालच"),
+        (bool(fields.claimed_identity), "a claimed identity you cannot check", "ऐसी पहचान जिसकी आप जाँच नहीं कर सकते"),
+    ):
+        if on:
+            lure_en.append(en)
+            lure_hi.append(hi)
 
     signals: list[Signal] = []
     if fields.demands_payment and not _payee_official(fields, issuer) and pressure_en:
@@ -59,6 +70,46 @@ def run(fields: Fields, text: str, issuer: dict[str, Any] | None = None) -> list
                 "असली अधिकारी इस तरह पैसे नहीं माँगते।",
             )
         )
+    elif fields.asks_for_money and not _payee_official(fields, issuer) and lure_en:
+        signals.append(
+            Signal(
+                "ask",
+                "ask.money_request",
+                Strength.STRONG,
+                PointsTo.FAKE,
+                f"It asks you to send money, with pressure: {', '.join(lure_en)}. Scammers ask for money this way.",
+                f"यह आपसे पैसे भेजने को कहता है, दबाव के साथ: {', '.join(lure_hi)}। ठग इसी तरह पैसे माँगते हैं।",
+            )
+        )
+    if fields.asks_for_credentials:
+        signals.append(
+            Signal(
+                "ask",
+                "ask.credential_request",
+                Strength.STRONG,
+                PointsTo.FAKE,
+                "It asks you to verify your identity or share details such as an OTP, PIN, KYC or card number "
+                "through a message. Banks and officials never ask for this by message.",
+                "यह आपसे संदेश के ज़रिए पहचान की पुष्टि करने या OTP, PIN, KYC या कार्ड जैसी जानकारी देने को कहता है। "
+                "बैंक और अधिकारी संदेश से यह कभी नहीं माँगते।",
+            )
+        )
+    if reward:
+        signals.append(
+            _weak(
+                "reward_for_payment",
+                "It promises a prize, a big return or a gift in exchange for money. That is how these scams work.",
+                "यह पैसों के बदले इनाम, बड़ा मुनाफ़ा या तोहफ़ा देने का वादा करता है। ठगी इसी तरह होती है।",
+            )
+        )
+    if fields.threatens_account:
+        signals.append(
+            _weak(
+                "account_threat",
+                "It threatens that your account will be blocked or a service cut off. Scammers use this to scare you.",
+                "यह आपका खाता बंद करने या सेवा काटने की धमकी देता है। ठग डराने के लिए ऐसा करते हैं।",
+            )
+        )
     if fields.asks_secrecy:
         signals.append(
             _weak(
@@ -71,8 +122,8 @@ def run(fields: Fields, text: str, issuer: dict[str, Any] | None = None) -> list
         signals.append(
             _weak(
                 "urgent_deadline",
-                "It gives you very little time to act. Scammers rush you so you cannot check.",
-                "यह आपको बहुत कम समय देता है। ठग जल्दबाज़ी करवाते हैं ताकि आप जाँच न कर सकें।",
+                "It rushes you to act now. Scammers do this so you cannot stop and check.",
+                "यह आपसे तुरंत कदम उठाने को कहता है। ठग ऐसा इसलिए करते हैं ताकि आप रुककर जाँच न कर सकें।",
             )
         )
     if fields.threatens_user:

@@ -18,6 +18,10 @@ BANK_HI = "आपका बैंक कभी भी किसी UPI ID पर
 AUTHORITY_EN = "No police, CBI, ED or court arrests anyone on a video call"
 AUTHORITY_HI = "पुलिस, CBI, ED या कोई न्यायालय वीडियो कॉल पर गिरफ़्तारी नहीं करता"
 FAMILY_SCAM = "Hi beta, I am stuck. Send Rs 45,000 to quickhelp.cash@ybl today. Don't tell anyone at home."
+CREDENTIAL_EN = "Banks never ask you to verify through a message. Call the number on the back of your card."
+CREDENTIAL_HI = "बैंक कभी भी संदेश के ज़रिए पुष्टि करने को नहीं कहते।"
+# A bank scam that asks for a fee but no credentials gets the bank line.
+BANK_FEE_SMS = "Dear customer, your Navdeep Bank account will be BLOCKED today. Pay Rs 499 reactivation fee to navdeep.kyc@ybl."
 
 
 @pytest.mark.parametrize(
@@ -39,9 +43,16 @@ def test_sender_group(sender_type, sender_id, group):
 
 
 def test_bank_sms_gets_bank_line_not_arrest_line():
-    reply = check_text(TEXTS["T1"]).reply
-    assert BANK_EN in reply
+    reply = check_text(BANK_FEE_SMS).reply
+    assert reply.startswith("Suspicious") and BANK_EN in reply
     assert AUTHORITY_EN not in reply
+
+
+def test_credential_request_gets_the_call_your_bank_line():
+    """T1 asks you to update your PAN through a link: a credential request, so the action says how to check."""
+    reply = check_text(TEXTS["T1"]).reply
+    assert CREDENTIAL_EN in reply and BANK_EN not in reply
+    assert CREDENTIAL_HI in check_text(TEXTS["T1"], lang="hi").reply
 
 
 def test_rbi_notice_gets_bank_line():
@@ -56,7 +67,7 @@ def test_agency_claim_keeps_arrest_line_in_hindi():
 
 
 def test_bank_line_in_hindi():
-    assert BANK_HI in check_text(TEXTS["T1"], lang="hi").reply
+    assert BANK_HI in check_text(BANK_FEE_SMS, lang="hi").reply
 
 
 def test_no_claimed_sender_gets_general_line():
@@ -75,7 +86,7 @@ def test_every_action_line_offers_report_and_already_paid():
 def test_cached_reply_keeps_the_tailored_line(tmp_path):
     intake = Intake(Store(tmp_path / "t.db"), salt="s")
     out: list[str] = []
-    for text in ("YES", TEXTS["T1"], TEXTS["T1"]):
+    for text in ("YES", BANK_FEE_SMS, BANK_FEE_SMS):
         intake.handle(Inbound("telegram", "1", text), out.append)
     first, cached = out[2], out[3]
     assert cached == first
