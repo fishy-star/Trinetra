@@ -46,3 +46,15 @@ tools/out/
 .vscode/
 .idea/
 .DS_Store
+# big or private data
+data/external/
+models/
+data/voice/
+*.db
+data/media/
+data/evidence/
+.env
+.claude/
+CLAUDE.md
+.claude/
+CLAUDE.md
