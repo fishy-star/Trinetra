@@ -18,6 +18,19 @@ Full build spec, architecture, verdict rules, reply templates, privacy rules, an
 
 Not yet built. See the Build order table in [CLAUDE.md](CLAUDE.md) for the milestone plan.
 
+## Setup
+
+Requires Python 3.11 and Tesseract with English and Hindi language data (`brew install tesseract tesseract-lang` on macOS, `apt install tesseract-ocr tesseract-ocr-hin` on Debian/Ubuntu).
+
+```sh
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest
+```
+
+Secrets come only from environment variables. Keep them in a local `.env` (git-ignored) and never commit them. Runtime data (SQLite, media, local evidence store, packets) lives in `DATA_DIR`, which defaults to `data/runtime/` and is git-ignored. `data/test-set/` and `data/registry/` are tracked.
+
 ## Running
 
 - **Offline (no AWS, no LLM):** `LLM_MODE=off STT_MODE=off AUDIO_MODEL=off uvicorn app.main:app` — this is also how tests and the eval script run.
