@@ -58,3 +58,6 @@ data/evidence/
 CLAUDE.md
 .claude/
 CLAUDE.md
+
+# Logs written by start.sh
+logs/
