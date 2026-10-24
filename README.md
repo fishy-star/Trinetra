@@ -99,6 +99,8 @@ python tools/seed_demo_issuers.py
 python tools/make_demo_summons.py     # a demo summons to issue, in data/runtime/demo/
 ```
 
+**Judge mode.** `/try` shows a QR code for the bot and the three samples. In the bot, "Try a sample" (or `/samples`) sends them. Point `DEMO_SUMMONS_PATH` and `DEMO_ALTERED_PATH` in `.env` at a stamped demo summons from the issuer portal and its altered copy (`tools/demo_alter_amount.py`).
+
 Polling and a webhook cannot run at the same time. The deployed service uses the webhook at `/telegram/webhook` instead, which is off until `TELEGRAM_WEBHOOK_SECRET` is set.
 
 **Offline mode.** With `LLM_MODE=off STT_MODE=off AUDIO_MODEL=off`, everything runs without AWS or internet. That is also how the tests run.

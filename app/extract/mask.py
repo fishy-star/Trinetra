@@ -35,6 +35,16 @@ def mask_upi(upi: str) -> str:
     return f"{name[:2]}***@{handle}"
 
 
+def mask_phone(phone: str) -> str:
+    digits = re.sub(r"\D", "", phone)
+    return "X" * max(0, len(digits) - 3) + digits[-3:]
+
+
+def mask_email(email: str) -> str:
+    name, _, domain = email.partition("@")
+    return f"{name[:1]}***@{domain}"
+
+
 def mask_fields(fields: Fields) -> Fields:
     """Copy of `fields` safe to store. The full payee goes to the evidence vault only after a report."""
     return Fields(

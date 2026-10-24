@@ -14,7 +14,8 @@ import threading
 import time
 from functools import partial
 
-from app.channels.telegram import TelegramAPI, TelegramError, parse_update
+from app.channels.dispatch import Dispatcher
+from app.channels.telegram import TelegramAPI, TelegramError, TelegramSender, parse_update
 from app.config import settings
 from app.intake import Intake
 from app.jobs import start_purger
@@ -23,18 +24,28 @@ from app.store import Store
 log = logging.getLogger("trinetra.telegram_poll")
 
 
-def run_once(api: TelegramAPI, intake: Intake, offset: int | None, timeout: int = 30) -> int | None:
-    """Fetch one batch of updates, handle each, and return the next offset."""
+def run_once(
+    api: TelegramAPI, intake: Intake, offset: int | None, timeout: int = 30, dispatcher: Dispatcher | None = None
+) -> int | None:
+    """Fetch one batch of updates, hand each to the dispatcher (or handle it here), and return the next offset."""
     for update in api.get_updates(offset, timeout=timeout):
         offset = update["update_id"] + 1
         msg = parse_update(update, api)
         if msg is None:
             continue
-        try:
-            intake.handle(msg, partial(api.send_message, msg.chat_id))
-        except Exception:
-            log.exception("failed to handle update %s", update["update_id"])
+        job = partial(_handle, intake, msg, TelegramSender(api, msg), update["update_id"])
+        if dispatcher is None:
+            job()
+        else:
+            dispatcher.submit(msg.chat_id, job)
     return offset
+
+
+def _handle(intake: Intake, msg, send, update_id: int) -> None:
+    try:
+        intake.handle(msg, send)
+    except Exception:
+        log.exception("failed to handle update %s", update_id)
 
 
 def main() -> None:
@@ -49,12 +60,13 @@ def main() -> None:
     intake = Intake(store, settings.user_id_salt, data_dir=settings.data_dir, media_ttl_hours=settings.media_ttl_hours)
     stop = threading.Event()
     start_purger(store, intake.media, stop)
-    log.info("polling Telegram; press Ctrl+C to stop")
+    dispatcher = Dispatcher()
+    log.info("polling Telegram with %d workers; press Ctrl+C to stop", dispatcher.workers)
     offset = None
     try:
         while True:
             try:
-                offset = run_once(api, intake, offset)
+                offset = run_once(api, intake, offset, dispatcher=dispatcher)
             except TelegramError as e:
                 if e.status == 409:
                     log.error("Telegram refused polling because a webhook is registered. Remove it before polling.")
@@ -63,6 +75,7 @@ def main() -> None:
                 time.sleep(5)
     except KeyboardInterrupt:
         stop.set()
+        dispatcher.shutdown()
         log.info("stopped")
 
 

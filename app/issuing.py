@@ -17,12 +17,22 @@ from app.store import Store
 
 
 class IssueError(ValueError):
-    """The upload cannot be issued. The message is shown to the issuer; `reason` and `detail` go to the audit log."""
+    """The upload cannot be issued. `reason` and `detail` go to the audit log.
 
-    def __init__(self, message: str, reason: str = "invalid_upload", detail: str = ""):
+    For display, the portal shows `headline`, then `summary`, then each of `reasons` as a bullet,
+    then `after`. The plain message (str) carries the same words in one line.
+    """
+
+    def __init__(self, message: str, reason: str = "invalid_upload", detail: str = "", *,
+                 headline: str = "This notice can't be issued", summary: str | None = None,
+                 reasons: list[str] = (), after: str = ""):
         super().__init__(message)
         self.reason = reason
         self.detail = detail
+        self.headline = headline
+        self.summary = message if summary is None else summary
+        self.reasons = list(reasons)
+        self.after = after
 
 
 @dataclass(frozen=True)
@@ -58,19 +68,23 @@ def names_other_body(fields, issuer: dict) -> str | None:
 def pre_issue_check(store: Store, issuer: dict, body: str, source_sha: str, confirmed: bool) -> tuple[str, ...]:
     """Refuse what Trinetra would not trust. Returns the signal codes of a suspicious notice the issuer confirmed."""
     result, fields = analyse_text(body, kind=Kind.NOTICE, known=store.is_known_fake, issuer_context=issuer)
-    reasons = " ".join(s.reason_en for s in result.signals if s.points_to.value == "fake")
+    reason_list = [s.reason_en for s in result.signals if s.points_to.value == "fake"]
+    reasons = " ".join(reason_list)
     signal_codes = ",".join(s.code for s in result.signals)
 
     if result.verdict is Verdict.LIKELY_FAKE:
         raise IssueError(
             f"Trinetra would rate this notice likely fake, so it cannot be issued. {reasons}",
             "likely_fake", f"sha256={source_sha} signals={signal_codes}",
+            headline="This notice can't be issued: Trinetra rates it likely fake",
+            summary="Trinetra would rate this notice likely fake, so it cannot be issued.", reasons=reason_list,
         )
     other = names_other_body(fields, issuer)
     if other:
         raise IssueError(
             f"This notice names {other}, not {issuer['name']}. You can only issue notices from your own organisation.",
             "other_body", f"sha256={source_sha} claimed={other}",
+            headline=f"This notice can't be issued: it names {other}",
         )
     if result.verdict is Verdict.SUSPICIOUS:
         if not confirmed:
@@ -78,6 +92,9 @@ def pre_issue_check(store: Store, issuer: dict, body: str, source_sha: str, conf
                 f"Trinetra would rate this notice suspicious: {reasons} If it is genuine, tick "
                 f"\u201c{CONFIRM_LABEL}\u201d and issue it again.",
                 "suspicious_unconfirmed", f"sha256={source_sha} signals={signal_codes}",
+                headline="Confirmation needed: Trinetra rates this notice suspicious",
+                summary="Trinetra would rate this notice suspicious:", reasons=reason_list,
+                after=f"If it is genuine, tick \u201c{CONFIRM_LABEL}\u201d and issue it again.",
             )
         return tuple(s.code for s in result.signals if s.points_to.value == "fake")
     return ()

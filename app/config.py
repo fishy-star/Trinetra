@@ -30,6 +30,8 @@ class Settings:
     media_ttl_hours: int
     user_id_salt: str | None
     public_base_url: str
+    demo_summons_path: Path | None
+    demo_altered_path: Path | None
 
     def __repr__(self) -> str:
         # Never print secrets, even by accident.
@@ -56,6 +58,9 @@ class Settings:
             media_ttl_hours=int(env("MEDIA_TTL_HOURS", "24")),
             user_id_salt=env("USER_ID_SALT"),
             public_base_url=env("PUBLIC_BASE_URL", "http://localhost:8000"),
+            # Sample files for judge mode; a relative path is taken from the repo root.
+            demo_summons_path=ROOT / env("DEMO_SUMMONS_PATH") if env("DEMO_SUMMONS_PATH") else None,
+            demo_altered_path=ROOT / env("DEMO_ALTERED_PATH") if env("DEMO_ALTERED_PATH") else None,
         )
 
 

@@ -314,7 +314,15 @@ def test_cases_sorted_by_reports_and_case_page_shows_evidence(intake, console):
     assert listing.index("Case 2") < listing.index("Case 1")
     page = client.get("/console/case/2").text
     assert sha256_bytes(F1_PNG) in page
-    assert "source.non_official_contact" in page and "R3" in page and "50200077118843" in page
+    assert "source.non_official_contact" in page and "R3" in page
+    # Zero trust: the full payee is not in the page until a reviewer reveals it, with a reason, through the server.
+    assert "50200077118843" not in page and "XXXXXXXXXX8843" in page
+    revealed = client.post("/console/case/2/reveal", data={"reason": "Preparing the cyber cell complaint",
+                                                           "csrf": csrf(client, 2)})
+    assert "50200077118843" in revealed.text
+    entry = intake.store.audit_entries()[0]
+    assert (entry["actor"], entry["action"]) == ("asha", "evidence_revealed")
+    assert entry["detail"] == "case=2 reason=Preparing the cyber cell complaint"
     report_id = intake.store.case_reports(2)[0]["id"]
     image = client.get(f"/console/report/{report_id}/file")
     assert image.content == F1_PNG and image.headers["content-type"] == "image/png"
@@ -475,3 +483,39 @@ def test_delete_keeps_evidence_locked_by_an_approval_that_was_later_reversed(int
     assert u.say("DELETE") == [EN["deleted"]]
     assert Path(report["evidence_path"]).exists()
     assert intake.store.case_reports(1)[0]["user_hash"] is None
+
+
+# --- reveal, logged -------------------------------------------------------------------------
+
+
+def test_full_details_are_not_in_the_page_by_default(intake, console):
+    u = User(intake, "1")
+    u.say(photo=F1_PNG)
+    u.report()
+    page = login(console[0]).get("/console/case/1").text
+    for secret in ("50200077118843", "registrar.sc.verification@gmail.com"):
+        assert secret not in page
+    assert "r***@gmail.com" in page and "Reveal full details" in page
+
+
+def test_reveal_needs_a_reason_and_the_form_token(intake, console):
+    u = User(intake, "1")
+    u.say(photo=F1_PNG)
+    u.report()
+    client = login(console[0])
+    assert client.post("/console/case/1/reveal", data={"reason": "because I want to", "csrf": "x"}).status_code == 403
+    short = client.post("/console/case/1/reveal", data={"reason": "why", "csrf": csrf(client, 1)})
+    assert "50200077118843" not in short.text and "Give a reason" in short.text
+    assert "evidence_revealed" not in [a["action"] for a in intake.store.audit_entries()]
+    full = client.post("/console/case/1/reveal", data={"reason": "Checking the account for the bank", "csrf": csrf(client, 1)})
+    assert "registrar.sc.verification@gmail.com" in full.text and "Revealed and logged" in full.text
+
+
+def test_reveal_needs_a_reviewer(intake, console):
+    u = User(intake, "1")
+    u.say(TEXTS["T1"])
+    u.report()
+    resp = console[0].post("/console/case/1/reveal", data={"reason": "just looking around", "csrf": ""},
+                           follow_redirects=False)
+    assert resp.status_code == 303
+    assert "evidence_revealed" not in [a["action"] for a in intake.store.audit_entries()]

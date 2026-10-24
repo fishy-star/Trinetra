@@ -131,6 +131,20 @@ CREATE TABLE IF NOT EXISTS issued_notices (
     stamped_sha256  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS issued_notices_issuer ON issued_notices (issuer_id, issued_at);
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sha256      TEXT NOT NULL,               -- the checked item's hash; nothing about who pressed
+    verdict     TEXT NOT NULL,
+    vote        TEXT NOT NULL                -- helpful | not_helpful
+);
+CREATE TABLE IF NOT EXISTS checks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at          TEXT NOT NULL,               -- counts only: no hash, no user, no content
+    kind        TEXT NOT NULL,
+    channel     TEXT NOT NULL,
+    verdict     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS checks_at ON checks (at);
 CREATE TABLE IF NOT EXISTS audit_log (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     at      TEXT NOT NULL,
@@ -185,6 +199,8 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         with self._db() as db:
+            # WAL lets the bot's worker threads and the web service read while one of them writes.
+            db.execute("PRAGMA journal_mode=WAL")
             db.executescript(SCHEMA)
             for table, columns in MIGRATIONS.items():
                 have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
@@ -581,6 +597,49 @@ class Store:
                 (now().isoformat(), username, notice_id, issuer_id),
             )
             return cur.rowcount == 1
+
+    # --- feedback and usage counts ---------------------------------------------------
+
+    def add_feedback(self, sha_prefix: str, verdict: str, vote: str) -> None:
+        """Store the item's hash (completed from the prefix a button carries), the verdict and the vote."""
+        with self._db() as db:
+            row = db.execute(
+                "SELECT sha256 FROM items WHERE sha256 LIKE ? LIMIT 1", (sha_prefix.lower() + "%",)
+            ).fetchone()
+            db.execute(
+                "INSERT INTO feedback (sha256, verdict, vote) VALUES (?, ?, ?)",
+                (row["sha256"] if row else sha_prefix.lower(), verdict, vote),
+            )
+
+    def record_check(self, kind: str, channel: str, verdict: str) -> None:
+        with self._db() as db:
+            db.execute(
+                "INSERT INTO checks (at, kind, channel, verdict) VALUES (?, ?, ?, ?)",
+                (now().isoformat(), kind, channel, verdict),
+            )
+
+    def stats(self, hours: int = 24) -> dict:
+        """Counts only, for the reviewers' stats page. No hashes, no users, no content."""
+        since = (now() - timedelta(hours=hours)).isoformat()
+        with self._db() as db:
+            def grouped(sql: str, *args) -> dict[str, int]:
+                return {r[0]: r[1] for r in db.execute(sql, args)}
+
+            return {
+                "users": db.execute("SELECT COUNT(*) FROM users WHERE consent_at IS NOT NULL").fetchone()[0],
+                "checks": db.execute("SELECT COUNT(*) FROM checks").fetchone()[0],
+                "by_kind": grouped("SELECT kind, COUNT(*) FROM checks GROUP BY kind"),
+                "by_channel": grouped("SELECT channel, COUNT(*) FROM checks GROUP BY channel"),
+                "by_verdict": grouped("SELECT verdict, COUNT(*) FROM checks GROUP BY verdict"),
+                "feedback": grouped("SELECT vote, COUNT(*) FROM feedback GROUP BY vote"),
+                "feedback_by_verdict": {
+                    (r[0], r[1]): r[2]
+                    for r in db.execute("SELECT verdict, vote, COUNT(*) FROM feedback GROUP BY verdict, vote")
+                },
+                "per_hour": grouped(
+                    "SELECT substr(at, 1, 13), COUNT(*) FROM checks WHERE at > ? GROUP BY substr(at, 1, 13)", since
+                ),
+            }
 
     # --- audit log ------------------------------------------------------------
 
