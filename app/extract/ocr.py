@@ -9,6 +9,7 @@ import unicodedata
 from io import BytesIO
 
 import pytesseract
+import zxingcpp
 from PIL import Image, ImageChops, ImageFilter, ImageOps, UnidentifiedImageError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -117,6 +118,28 @@ def pdf_text(data: bytes) -> str:
         raise UnreadableFile("not a readable PDF") from e
     # NFKC folds the ligatures PDF fonts use ("ﬁ" -> "fi").
     return unicodedata.normalize("NFKC", "\n".join(chunks))
+
+
+def qr_texts(data: bytes) -> list[str]:
+    """Text of every QR code in an image, or in the images embedded in a PDF's first pages."""
+    images: list[Image.Image] = []
+    try:
+        if sniff(data) == "pdf":
+            for page in PdfReader(BytesIO(data)).pages[:MAX_PDF_PAGES]:
+                images += [img.image for img in page.images]
+        elif sniff(data) in ("png", "jpeg"):
+            with Image.open(BytesIO(data)) as im:
+                if im.width * im.height <= MAX_PIXELS:
+                    images.append(ImageOps.exif_transpose(im).convert("RGB"))
+    except (PdfReadError, ValueError, KeyError, OSError, UnidentifiedImageError):
+        return []
+    found: list[str] = []
+    for image in images:
+        try:
+            found += [r.text for r in zxingcpp.read_barcodes(image, formats=zxingcpp.BarcodeFormat.QRCode)]
+        except (ValueError, RuntimeError):
+            continue
+    return found
 
 
 def file_text(data: bytes) -> str:

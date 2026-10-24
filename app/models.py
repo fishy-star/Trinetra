@@ -61,6 +61,7 @@ class Fields:
     urls: list[str] = field(default_factory=list)
     emails: list[str] = field(default_factory=list)
     phones: list[str] = field(default_factory=list)
+    dates: list[str] = field(default_factory=list)  # dd-mm-yyyy
     demands_payment: bool = False
     threatens_user: bool = False
     asks_secrecy: bool = False

@@ -11,8 +11,6 @@ import hashlib
 import hmac
 import json
 import logging
-import time
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -24,6 +22,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app import packet
+from app.auth import LoginLimiter, Sessions, client_of
 from app.config import settings
 from app.evidence import CONTENT_TYPES, EvidenceStore, IntegrityError, write_once
 from app.store import Store
@@ -32,9 +31,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/console")
 
 COOKIE = "trinetra_console"
-SESSION_SECONDS = 12 * 3600
-MAX_FAILED_LOGINS = 10
-LOCKOUT_SECONDS = 15 * 60
 ACTIONS = {"approve_fake": "Approve as fake", "not_fake": "Mark not fake", "needs_info": "Needs more info"}
 STATUS_LABELS = {"open": "Open", "approved_fake": "Approved as fake", "not_fake": "Not fake", "needs_info": "Needs more info"}
 
@@ -52,6 +48,10 @@ class Console:
     def enabled(self) -> bool:
         return bool(self.reviewers and self.password)
 
+    @property
+    def sessions(self) -> Sessions:
+        return Sessions(COOKIE, "/console", self.secret)
+
 
 @lru_cache
 def console_deps() -> Console:
@@ -65,31 +65,16 @@ def console_deps() -> Console:
 
 # --- sessions -----------------------------------------------------------------
 
-_failed: dict[str, list[float]] = defaultdict(list)
-
-
-def _sign(c: Console, value: str) -> str:
-    return hmac.new(c.secret, value.encode(), hashlib.sha256).hexdigest()
-
-
-def _session_cookie(c: Console, user: str) -> str:
-    body = f"{user}|{int(time.time()) + SESSION_SECONDS}"
-    return f"{body}|{_sign(c, body)}"
+limiter = LoginLimiter()
 
 
 def current_user(request: Request, c: Console = Depends(console_deps)) -> str | None:
-    raw = request.cookies.get(COOKIE, "")
-    try:
-        user, expiry, sig = raw.rsplit("|", 2)
-    except ValueError:
-        return None
-    if not hmac.compare_digest(sig, _sign(c, f"{user}|{expiry}")) or int(expiry) < time.time():
-        return None
+    user = c.sessions.user(request)
     return user if user in c.reviewers else None
 
 
 def csrf_token(c: Console, request: Request) -> str:
-    return _sign(c, "csrf|" + request.cookies.get(COOKIE, ""))[:32]
+    return c.sessions.csrf(request)
 
 
 def require_user(request: Request, c: Console = Depends(console_deps)) -> str:
@@ -100,8 +85,7 @@ def require_user(request: Request, c: Console = Depends(console_deps)) -> str:
 
 
 def check_csrf(c: Console, request: Request, token: str) -> None:
-    if not hmac.compare_digest(token, csrf_token(c, request)):
-        raise HTTPException(403, "Invalid form token. Reload the page and try again.")
+    c.sessions.check_csrf(request, token)
 
 
 # --- pages ------------------------------------------------------------------
@@ -186,10 +170,8 @@ def cases_page(request: Request, c: Console = Depends(console_deps)) -> HTMLResp
 
 @router.post("/login")
 def login(request: Request, username: str = Form(""), password: str = Form(""), c: Console = Depends(console_deps)) -> Response:
-    client = request.client.host if request.client else "unknown"
-    recent = [t for t in _failed[client] if t > time.time() - LOCKOUT_SECONDS]
-    _failed[client] = recent
-    if len(recent) >= MAX_FAILED_LOGINS:
+    client = client_of(request)
+    if limiter.locked(client):
         return login_page(c, "Too many failed attempts. Try again in 15 minutes.")
     ok = (
         c.enabled
@@ -197,20 +179,19 @@ def login(request: Request, username: str = Form(""), password: str = Form(""), 
         and hmac.compare_digest(password.encode(), (c.password or "").encode())
     )
     if not ok:
-        _failed[client].append(time.time())
+        limiter.fail(client)
         c.store.audit(username[:40] or "-", "login_failed")
         return login_page(c, "Wrong reviewer name or password.")
     c.store.audit(username, "login")
     resp = RedirectResponse("/console", status_code=303)
-    resp.set_cookie(COOKIE, _session_cookie(c, username), max_age=SESSION_SECONDS, httponly=True, samesite="strict",
-                    secure=request.url.scheme == "https", path="/console")
+    c.sessions.start(resp, request, username)
     return resp
 
 
 @router.post("/logout")
-def logout() -> Response:
+def logout(c: Console = Depends(console_deps)) -> Response:
     resp = RedirectResponse("/console", status_code=303)
-    resp.delete_cookie(COOKIE, path="/console")
+    c.sessions.end(resp)
     return resp
 
 

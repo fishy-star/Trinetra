@@ -32,11 +32,20 @@ AMOUNT = re.compile(
     rf"|(?<![{lexicon.DEV}])[{lexicon.DEV}]+\s+(?:हजार|लाख|करोड)(?:\s+(?:रुपये|रुपए))?",
     re.IGNORECASE,
 )
+DATE = re.compile(r"(?<!\d)(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})(?!\d)")
 CASE_NUMBER = re.compile(
     r"\b(?:case|fir|order|ref|suit|notice)\.?\s*(?:no\.?|number)?\s*[:.]?\s*(?=[A-Z/\-]*\d)([A-Z0-9][A-Z0-9/\-]{2,})"
     r"|(?:मामला|सूचना|संदर्भ)\s*(?:संख्या)?\s*(?=[A-Z/\-]*\d)([A-Z0-9][A-Z0-9/\-]{2,})",
     re.IGNORECASE,
 )
+
+
+def _dates(text: str) -> list[str]:
+    out = []
+    for d, m, y in DATE.findall(text):
+        if 1 <= int(d) <= 31 and 1 <= int(m) <= 12:
+            out.append(f"{int(d):02d}-{int(m):02d}-{y if len(y) == 4 else '20' + y}")
+    return _unique(out)
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -90,6 +99,7 @@ def extract(text: str) -> Fields:
         urls=urls,
         emails=emails,
         phones=phones,
+        dates=_dates(text),
         demands_payment=demands_payment,
         threatens_user=lexicon.threatens_arrest(text, demands_payment or bool(upi_ids or accounts)),
         asks_secrecy=lexicon.asks_secrecy(text),

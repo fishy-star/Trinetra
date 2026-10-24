@@ -1,14 +1,17 @@
 """Source check: did it come from who it claims?
 
-Proof signals (signature_valid, registry_match) arrive with PDF signatures and the notice
-registry. source.unknown_case_format is left out until we have real case-number formats.
+Issuer-code signals (proof, altered, invalid and missing codes) are in checks/issuer.py.
+source.signature_valid arrives with PDF signatures. source.unknown_case_format is left out until
+we have real case-number formats.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.extract.fields import is_mobile
 from app.models import Fields, PointsTo, Signal, Strength
-from app.registry import GOVERNMENT_TYPES, OFFICIAL_TYPES, is_official_domain, is_official_payee
+from app.registry import GOVERNMENT_TYPES, OFFICIAL_TYPES, is_official_domain, is_official_payee, normalize_payee
 
 FREE_EMAIL = frozenset(
     {
@@ -23,11 +26,22 @@ def _domain(url: str) -> str:
     return url.split("/", 1)[0]
 
 
-def payee_mismatch(fields: Fields) -> Signal | None:
+def _issuer_payees(issuer: dict[str, Any] | None) -> set[str]:
+    return {normalize_payee(p) for p in (issuer or {}).get("payees", [])}
+
+
+def _issuer_domain(host: str, issuer: dict[str, Any] | None) -> bool:
+    host = host.lower().removeprefix("www.")
+    return any(host == d or host.endswith("." + d) for d in (issuer or {}).get("domains", []))
+
+
+def payee_mismatch(fields: Fields, issuer: dict[str, Any] | None = None) -> Signal | None:
     if fields.sender_type not in GOVERNMENT_TYPES or not fields.demands_payment:
         return None
-    # Any UPI ID or account named by a government body is non-government, unless it is on official_payees.json.
-    if not any(not is_official_payee(p) for p in fields.payees):
+    # Any UPI ID or account named by a government body is non-government, unless it is on official_payees.json
+    # or is one of the payees the issuer registered in the issuer portal.
+    own = _issuer_payees(issuer)
+    if not any(not is_official_payee(p) and normalize_payee(p) not in own for p in fields.payees):
         return None
     return Signal(
         "source",
@@ -41,7 +55,7 @@ def payee_mismatch(fields: Fields) -> Signal | None:
     )
 
 
-def non_official_contact(fields: Fields) -> Signal | None:
+def non_official_contact(fields: Fields, issuer: dict[str, Any] | None = None) -> Signal | None:
     if fields.sender_type not in OFFICIAL_TYPES:
         return None
     found_en: list[str] = []
@@ -54,7 +68,7 @@ def non_official_contact(fields: Fields) -> Signal | None:
         found_en.append("a personal mobile or WhatsApp number")
         found_hi.append("निजी मोबाइल या WhatsApp नंबर")
     domains = [_domain(u) for u in fields.urls] + [d for d in emails if d not in FREE_EMAIL]
-    if any(not is_official_domain(d) for d in domains):
+    if any(not is_official_domain(d) and not _issuer_domain(d, issuer) for d in domains):
         found_en.append("a website that is not an official government or bank site")
         found_hi.append("ऐसी वेबसाइट जो आधिकारिक सरकारी या बैंक साइट नहीं है")
     if not found_en:
@@ -71,5 +85,6 @@ def non_official_contact(fields: Fields) -> Signal | None:
     )
 
 
-def run(fields: Fields) -> list[Signal]:
-    return [s for s in (payee_mismatch(fields), non_official_contact(fields)) if s]
+def run(fields: Fields, issuer: dict[str, Any] | None = None) -> list[Signal]:
+    """`issuer`: the portal issuer the notice comes from or claims, whose own domains and payees count as official."""
+    return [s for s in (payee_mismatch(fields, issuer), non_official_contact(fields, issuer)) if s]

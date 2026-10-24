@@ -36,6 +36,7 @@ FIELD_LABELS = (
     ("urls", "Web addresses"),
     ("emails", "Email addresses"),
     ("phones", "Phone numbers"),
+    ("dates", "Dates"),
     ("demands_payment", "Demands payment"),
     ("threatens_user", "Threatens arrest"),
     ("asks_secrecy", "Asks for secrecy"),

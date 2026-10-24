@@ -1,0 +1,18 @@
+{
+  "_status": "URLs to be confirmed by the team",
+  "_comment": "Where to check a notice at the source, by the claimed sender. A route matches on agency ids (from agencies.json) or agency types. Shown in suspicious and cannot_verify replies. The first matching route wins.",
+  "routes": [
+    {
+      "id": "income_tax_din",
+      "sender_ids": ["income_tax"],
+      "en": "Genuine Income Tax notices carry a DIN. Check it on incometax.gov.in under 'Authenticate notice/order issued by ITD'.",
+      "hi": "असली आयकर नोटिस पर DIN होता है। इसे incometax.gov.in पर 'Authenticate notice/order issued by ITD' में जाँचें।"
+    },
+    {
+      "id": "court_cnr",
+      "sender_types": ["court"],
+      "en": "Look up the case by its CNR number on ecourts.gov.in.",
+      "hi": "ecourts.gov.in पर CNR नंबर से मामला खोजें।"
+    }
+  ]
+}

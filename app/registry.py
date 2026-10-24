@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from app.checks.lexicon import normalize
 from app.config import REGISTRY_DIR
@@ -72,3 +73,17 @@ KNOWN_FAKES_PATH = REGISTRY_DIR / "known_fakes.json"
 @lru_cache
 def known_fakes() -> dict[str, list[str]]:
     return json.loads(KNOWN_FAKES_PATH.read_text(encoding="utf-8"))
+
+
+@lru_cache
+def verify_routes() -> tuple[dict[str, Any], ...]:
+    """Official places to check a notice, by claimed sender (data/registry/verify_routes.json)."""
+    raw = json.loads((REGISTRY_DIR / "verify_routes.json").read_text(encoding="utf-8"))
+    return tuple(raw["routes"])
+
+
+def verify_route(sender_type: str | None, sender_id: str | None) -> dict[str, Any] | None:
+    for route in verify_routes():
+        if sender_id in route.get("sender_ids", ()) or sender_type in route.get("sender_types", ()):
+            return route
+    return None

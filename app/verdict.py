@@ -4,6 +4,8 @@ Rows are evaluated in order and the first match wins.
 
 R0  Nothing readable could be extracted                          -> could_not_check
 R1  Matches a reviewer-confirmed known fake                      -> likely_fake
+R1A Official notice altered: a valid issuer code, but the notice  -> likely_fake
+    no longer matches what the issuer issued
 R2  Not voice, source proven, and no STRONG fake signal          -> verified_official
 R3  STRONG fake signals from two different checks                -> likely_fake
 R4  Exactly one check has a STRONG fake signal, or >= 2 WEAK     -> suspicious
@@ -32,6 +34,7 @@ def decide(
     known_fake_match: bool,
     source_proven: bool,
     readable: bool,
+    altered: bool = False,
 ) -> tuple[Verdict, str]:
     signals = list(signals)
     strong_checks = {s.check for s in signals if _is_strong_fake(s)}
@@ -41,6 +44,8 @@ def decide(
         return Verdict.COULD_NOT_CHECK, "R0"
     if known_fake_match:
         return Verdict.LIKELY_FAKE, "R1"
+    if altered:
+        return Verdict.LIKELY_FAKE, "R1A"
     if kind is not Kind.VOICE and source_proven and not strong_checks:
         return Verdict.VERIFIED_OFFICIAL, "R2"
     if len(strong_checks) >= 2:

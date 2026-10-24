@@ -8,3 +8,5 @@ pillow==13.0.0
 pypdf==6.21.2
 pytesseract==0.3.13
 reportlab==5.1.0
+qrcode==8.2
+zxing-cpp==3.1.1

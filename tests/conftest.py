@@ -18,7 +18,7 @@ def no_network(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_runtime_database():
-    """The web page's approved-fakes lookup would open DATA_DIR's real database; tests use none."""
-    main.app.dependency_overrides[main.known_fakes_lookup] = lambda: (lambda sha, payees: False)
+    """The web page's lookups would open DATA_DIR's real database; tests use none."""
+    main.app.dependency_overrides[main.web_store] = lambda: None
     yield
-    main.app.dependency_overrides.pop(main.known_fakes_lookup, None)
+    main.app.dependency_overrides.pop(main.web_store, None)

@@ -19,6 +19,7 @@ from app import pipeline
 from app.channels.telegram import TelegramAPI, parse_update
 from app.config import settings
 from app.console import router as console_router
+from app.portal import router as portal_router
 from app.evidence import MediaDir
 from app.extract import ocr
 from app.intake import MAX_BYTES, MESSAGES, Intake
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Trinetra", lifespan=lifespan)
 app.include_router(console_router)
+app.include_router(portal_router)
 
 
 @dataclass(frozen=True)
@@ -140,9 +142,13 @@ def _page(text: str = "", reply: str | None = None, lang: str = "") -> HTMLRespo
 
 
 @lru_cache
-def known_fakes_lookup() -> pipeline.KnownFake:
-    """The web page answers from the same approved fakes as the bot."""
-    return Store(settings.data_dir / "trinetra.db").is_known_fake
+def web_store() -> Store | None:
+    """The web page answers from the same approved fakes and issued notices as the bot."""
+    return Store(settings.data_dir / "trinetra.db")
+
+
+def lookups(store: Store | None) -> dict:
+    return {"known": store.is_known_fake, "issuers": store} if store else {}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -155,7 +161,7 @@ async def check_form(
     text: str = Form(""),
     lang: str = Form(""),
     file: UploadFile | None = File(None),
-    known: pipeline.KnownFake = Depends(known_fakes_lookup),
+    store: Store | None = Depends(web_store),
 ) -> HTMLResponse:
     lang = lang if lang in ("en", "hi") else ""
     if file is not None and file.filename:
@@ -167,11 +173,11 @@ async def check_form(
         if len(data) > MAX_BYTES[kind]:
             return _page(text, say["too_large"], lang)
         # OCR blocks for about a second, so keep it off the event loop.
-        result = await run_in_threadpool(pipeline.check_file, data, lang=lang or None, known=known)
+        result = await run_in_threadpool(partial(pipeline.check_file, data, lang=lang or None, **lookups(store)))
         return _page(text, result.reply, lang)
     if not text.strip():
         return _page(text, "Paste a message to check.", lang)
-    result = pipeline.check_text(text[:MAX_TEXT_CHARS], lang=lang or None, known=known)
+    result = pipeline.check_text(text[:MAX_TEXT_CHARS], lang=lang or None, **lookups(store))
     return _page(text, result.reply, lang)
 
 
@@ -186,8 +192,8 @@ class CheckResponse(BaseModel):
 
 
 @app.post("/api/check")
-def check_api(req: CheckRequest, known: pipeline.KnownFake = Depends(known_fakes_lookup)) -> CheckResponse:
+def check_api(req: CheckRequest, store: Store | None = Depends(web_store)) -> CheckResponse:
     # Verdict and reply only: rule rows and signal codes stay internal so probing teaches nothing.
     lang = req.lang if req.lang in ("en", "hi") else None
-    result = pipeline.check_text(req.text[:MAX_TEXT_CHARS], lang=lang, known=known)
+    result = pipeline.check_text(req.text[:MAX_TEXT_CHARS], lang=lang, **lookups(store))
     return CheckResponse(verdict=result.verdict.value, reply=result.reply)

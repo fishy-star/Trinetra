@@ -80,3 +80,49 @@ def test_cached_reply_keeps_the_tailored_line(tmp_path):
     first, cached = out[2], out[3]
     assert cached == first
     assert BANK_EN in cached
+
+
+# --- verify routes ------------------------------------------------------------------
+
+DIN_EN = "Genuine Income Tax notices carry a DIN."
+CNR_EN = "Look up the case by its CNR number on ecourts.gov.in."
+CNR_HI = "ecourts.gov.in पर CNR नंबर से मामला खोजें।"
+
+
+def test_routes_file_is_marked_unconfirmed():
+    import json
+
+    raw = json.loads((Path(__file__).parent.parent / "data/registry/verify_routes.json").read_text(encoding="utf-8"))
+    assert raw["_status"] == "URLs to be confirmed by the team"
+
+
+def test_income_tax_claim_gets_din_route():
+    text = "INCOME TAX DEPARTMENT\nA mismatch was found in your return. Respond within 30 days."
+    reply = check_text(text, kind=Kind.NOTICE).reply
+    assert reply.startswith("We could not verify this") and DIN_EN in reply
+
+
+def test_court_claim_gets_cnr_route_in_both_languages():
+    text = "IN THE COURT OF THE CIVIL JUDGE, PUNE\nYou are summoned to appear on 14-12-2026."
+    assert CNR_EN in check_text(text, kind=Kind.NOTICE).reply
+    assert CNR_HI in check_text(text, kind=Kind.NOTICE, lang="hi").reply
+
+
+def test_route_shown_for_suspicious_but_not_for_likely_fake():
+    suspicious = "SUPREME COURT OF INDIA\nContact the registrar on WhatsApp +91 90000 12345 immediately."
+    assert check_text(suspicious, kind=Kind.NOTICE).reply.startswith("Suspicious")
+    assert CNR_EN in check_text(suspicious, kind=Kind.NOTICE).reply
+    assert CNR_EN not in check_text(TEXTS["T2"]).reply  # CBI, likely fake: no route
+
+
+def test_no_route_without_a_matching_sender():
+    assert "ecourts" not in check_text(TEXTS["T4"]).reply and "DIN" not in check_text(TEXTS["T3"]).reply
+
+
+def test_cached_reply_keeps_the_route(tmp_path):
+    intake = Intake(Store(tmp_path / "t.db"), salt="s", data_dir=tmp_path)
+    out: list[str] = []
+    text = "INCOME TAX DEPARTMENT\nA mismatch was found in your return. Respond within 30 days."
+    for t in ("YES", text, text):
+        intake.handle(Inbound("telegram", "1", t), out.append)
+    assert out[3] == out[2] and DIN_EN in out[3]

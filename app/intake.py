@@ -142,6 +142,10 @@ class Intake:
         self.evidence = EvidenceStore(data_dir / "evidence")
         self.media_ttl = timedelta(hours=media_ttl_hours)
 
+    def _lookups(self) -> dict:
+        """Approved fakes and issued notices, both in the runtime database."""
+        return {"known": self.store.is_known_fake, "issuers": self.store}
+
     def user_hash(self, channel: str, chat_id: str) -> str:
         return hmac.new(self._salt, f"{channel}:{chat_id}".encode(), hashlib.sha256).hexdigest()
 
@@ -199,7 +203,7 @@ class Intake:
             sha = pipeline.sha256_text(text)
             reply_lang = user["lang"] or reply.detect_lang(text)
             if self._allowed(uid, say, send):
-                check = partial(self._check, text, kind=Kind.TEXT, sha256=sha, lang=reply_lang, known=self.store.is_known_fake)
+                check = partial(self._check, text, kind=Kind.TEXT, sha256=sha, lang=reply_lang, **self._lookups())
                 self._run(uid, sha, Kind.TEXT, text.encode("utf-8"), EXTENSIONS["text"], reply_lang, say, send, check)
 
     def _allowed(self, uid: str, say: dict[str, str], send: Callable[[str], None]) -> bool:
@@ -238,7 +242,7 @@ class Intake:
             return
         sha = pipeline.sha256_bytes(data)
         # Without a language choice, the reply follows the notice's own language, falling back to the app's.
-        check = partial(self._check_file, data, sha256=sha, lang=pref, fallback_lang=lang, known=self.store.is_known_fake)
+        check = partial(self._check_file, data, sha256=sha, lang=pref, fallback_lang=lang, **self._lookups())
         self._run(uid, sha, Kind.NOTICE, data, EXTENSIONS[actual], pref, say, send, check, fallback_lang=lang)
 
     def _run(
@@ -271,7 +275,9 @@ class Intake:
             log.info("cache hit kind=%s verdict=%s", cached.kind.value, cached.verdict.value)
             group = reply.sender_group(cached.sender_type, cached.sender_id)
             reply_lang = lang or cached.lang or fallback_lang
-            send(reply.build(cached.verdict, cached.signals, cached.kind, reply_lang, group, reviewed=cached.rule_row == "R1"))
+            verify = reply.verify_line(cached.sender_type, cached.sender_id, reply_lang)
+            send(reply.build(cached.verdict, cached.signals, cached.kind, reply_lang, group,
+                             reviewed=cached.rule_row == "R1", verify=verify))
             return
 
         send(say["checking"])
@@ -316,10 +322,10 @@ class Intake:
         try:
             path = self.evidence.put(data, sha, Path(item["media_path"]).suffix)
             if kind is Kind.TEXT:
-                result, fields = pipeline.analyse_text(data.decode("utf-8"), sha256=sha, lang=pref, known=self.store.is_known_fake)
+                result, fields = pipeline.analyse_text(data.decode("utf-8"), sha256=sha, lang=pref, **self._lookups())
             else:
                 result, fields = pipeline.analyse_file(
-                    data, sha256=sha, lang=pref, fallback_lang=lang, known=self.store.is_known_fake
+                    data, sha256=sha, lang=pref, fallback_lang=lang, **self._lookups()
                 )
             case = self.store.add_report(
                 NewReport(sha, uid, kind, len(data), str(path), result, fields, report_payees(fields))

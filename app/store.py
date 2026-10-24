@@ -96,6 +96,41 @@ CREATE TABLE IF NOT EXISTS known_fakes (
     added_by    TEXT NOT NULL,
     PRIMARY KEY (kind, value, case_id)
 );
+CREATE TABLE IF NOT EXISTS issuers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL UNIQUE,
+    type            TEXT NOT NULL,           -- court | bank | police | government | other
+    domains_json    TEXT NOT NULL,
+    contacts_json   TEXT NOT NULL,
+    payees_json     TEXT NOT NULL,
+    match_names_json TEXT NOT NULL,          -- names that, found in a notice, mean it claims to be this issuer
+    requires_code   INTEGER NOT NULL,
+    created_at      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS issuer_users (
+    username        TEXT PRIMARY KEY,
+    issuer_id       INTEGER NOT NULL REFERENCES issuers (id),
+    password_hash   TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS issued_notices (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    code            TEXT NOT NULL UNIQUE,
+    issuer_id       INTEGER NOT NULL REFERENCES issuers (id),
+    notice_type     TEXT NOT NULL,
+    issued_at       TEXT NOT NULL,
+    issued_by       TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'valid',   -- valid | revoked
+    revoked_at      TEXT,
+    revoked_by      TEXT,
+    source_kind     TEXT NOT NULL,                   -- png | jpeg | pdf | text
+    source_sha256   TEXT NOT NULL,
+    fingerprint     TEXT NOT NULL,
+    key_fields_json TEXT NOT NULL,
+    stamped_path    TEXT NOT NULL,
+    stamped_sha256  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS issued_notices_issuer ON issued_notices (issuer_id, issued_at);
 CREATE TABLE IF NOT EXISTS audit_log (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     at      TEXT NOT NULL,
@@ -467,6 +502,86 @@ class Store:
                 for key in keys
             )
 
+    # --- issuers and issued notices -------------------------------------------------
+
+    def upsert_issuer(
+        self, name: str, type_: str, domains: list[str], contacts: list[str], payees: list[str],
+        match_names: list[str], requires_code: bool,
+    ) -> int:
+        with self._db() as db:
+            db.execute(
+                "INSERT INTO issuers (name, type, domains_json, contacts_json, payees_json, match_names_json, "
+                "requires_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO UPDATE SET "
+                "type = excluded.type, domains_json = excluded.domains_json, contacts_json = excluded.contacts_json, "
+                "payees_json = excluded.payees_json, match_names_json = excluded.match_names_json, "
+                "requires_code = excluded.requires_code",
+                (name, type_, json.dumps(domains), json.dumps(contacts), json.dumps(payees), json.dumps(match_names),
+                 int(requires_code), now().isoformat()),
+            )
+            return db.execute("SELECT id FROM issuers WHERE name = ?", (name,)).fetchone()["id"]
+
+    def issuers(self) -> list[dict]:
+        with self._db() as db:
+            rows = db.execute("SELECT * FROM issuers ORDER BY id").fetchall()
+        return [_issuer(r) for r in rows]
+
+    def issuer(self, issuer_id: int) -> dict | None:
+        with self._db() as db:
+            row = db.execute("SELECT * FROM issuers WHERE id = ?", (issuer_id,)).fetchone()
+        return _issuer(row) if row else None
+
+    def set_issuer_user(self, username: str, issuer_id: int, password_hash: str) -> None:
+        with self._db() as db:
+            db.execute(
+                "INSERT INTO issuer_users VALUES (?, ?, ?, ?) ON CONFLICT (username) DO UPDATE SET "
+                "issuer_id = excluded.issuer_id, password_hash = excluded.password_hash",
+                (username, issuer_id, password_hash, now().isoformat()),
+            )
+
+    def issuer_user(self, username: str) -> sqlite3.Row | None:
+        with self._db() as db:
+            return db.execute("SELECT * FROM issuer_users WHERE username = ?", (username,)).fetchone()
+
+    def add_notice(self, **notice) -> int:
+        cols = ", ".join(notice)
+        with self._db() as db:
+            return db.execute(
+                f"INSERT INTO issued_notices ({cols}, issued_at) VALUES ({', '.join('?' * len(notice))}, ?)",
+                (*notice.values(), now().isoformat()),
+            ).lastrowid
+
+    def notice_by_code(self, code: str) -> dict | None:
+        """The notice with the issuer's name and type, for the pipeline and the public page."""
+        with self._db() as db:
+            row = db.execute(
+                "SELECT n.*, i.name AS issuer_name, i.type AS issuer_type, i.payees_json, i.domains_json "
+                "FROM issued_notices n JOIN issuers i ON i.id = n.issuer_id WHERE n.code = ?",
+                (code,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def issuer_notices(self, issuer_id: int) -> list[sqlite3.Row]:
+        with self._db() as db:
+            return db.execute(
+                "SELECT * FROM issued_notices WHERE issuer_id = ? ORDER BY id DESC", (issuer_id,)
+            ).fetchall()
+
+    def issuer_notice(self, issuer_id: int, notice_id: int) -> sqlite3.Row | None:
+        """A notice only if it belongs to `issuer_id`: issuers never see each other's notices."""
+        with self._db() as db:
+            return db.execute(
+                "SELECT * FROM issued_notices WHERE id = ? AND issuer_id = ?", (notice_id, issuer_id)
+            ).fetchone()
+
+    def revoke_notice(self, issuer_id: int, notice_id: int, username: str) -> bool:
+        with self._db() as db:
+            cur = db.execute(
+                "UPDATE issued_notices SET status = 'revoked', revoked_at = ?, revoked_by = ? "
+                "WHERE id = ? AND issuer_id = ? AND status = 'valid'",
+                (now().isoformat(), username, notice_id, issuer_id),
+            )
+            return cur.rowcount == 1
+
     # --- audit log ------------------------------------------------------------
 
     def audit(self, actor: str, action: str, detail: str = "") -> None:
@@ -488,3 +603,16 @@ def report_payees(fields: dict | Fields) -> list[str]:
         return []
     return list(f.get("upi_ids", [])) + [a["number"] for a in f.get("accounts", [])]
 
+
+
+def _issuer(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "type": row["type"],
+        "domains": json.loads(row["domains_json"]),
+        "contacts": json.loads(row["contacts_json"]),
+        "payees": json.loads(row["payees_json"]),
+        "match_names": json.loads(row["match_names_json"]),
+        "requires_code": bool(row["requires_code"]),
+    }

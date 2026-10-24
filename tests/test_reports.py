@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
 from app import console as console_mod
+from app.auth import MAX_FAILED_LOGINS
 from app.evidence import EvidenceStore, IntegrityError, LockedError
 from app.intake import MESSAGES, Inbound, Intake
 from app.jobs import purge_media
@@ -251,7 +252,7 @@ def console(intake, tmp_path):
         intake.store, intake.evidence, tmp_path / "packets", ("asha",), "correct horse", b"k" * 32
     )
     app.dependency_overrides[console_mod.console_deps] = lambda: deps
-    console_mod._failed.clear()
+    console_mod.limiter.clear()
     yield TestClient(app), deps
     app.dependency_overrides.pop(console_mod.console_deps, None)
 
@@ -283,7 +284,7 @@ def test_wrong_password_and_unknown_reviewer_are_refused(console):
 
 def test_login_is_locked_after_repeated_failures(console):
     client, _ = console
-    for _ in range(console_mod.MAX_FAILED_LOGINS):
+    for _ in range(MAX_FAILED_LOGINS):
         client.post("/console/login", data={"username": "asha", "password": "x"})
     resp = client.post("/console/login", data={"username": "asha", "password": "correct horse"}, follow_redirects=False)
     assert "Too many failed attempts" in resp.text
@@ -459,7 +460,7 @@ def test_web_page_answers_from_approved_fakes(intake):
     intake.store.add_known_fakes(1, "asha", [], ["navdeep.kyc@ybl"])
     from app import main
 
-    main.app.dependency_overrides[main.known_fakes_lookup] = lambda: intake.store.is_known_fake
+    main.app.dependency_overrides[main.web_store] = lambda: intake.store
     body = TestClient(app).post("/api/check", json={"text": "Pay Rs 10 to navdeep.kyc@ybl now."}).json()
     assert body["verdict"] == "likely_fake" and body["reply"].endswith("Reviewed by the Trinetra team.")
 

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from app.checks import lexicon
 from app.models import Fields, PointsTo, Signal, Strength
-from app.registry import is_official_payee
+from app.registry import is_official_payee, normalize_payee
 
 # SEBI validated handles: name@valid or name@valid<bank>.
 VALID_HANDLE = re.compile(r"@valid[a-z]*$", re.IGNORECASE)
@@ -16,12 +17,18 @@ def _weak(code: str, en: str, hi: str) -> Signal:
     return Signal("ask", f"ask.{code}", Strength.WEAK, PointsTo.FAKE, en, hi)
 
 
-def _payee_official(fields: Fields) -> bool:
-    # Official means a SEBI @valid handle or an entry in official_payees.json. With no payee named, nothing is proven.
-    return bool(fields.payees) and all(VALID_HANDLE.search(p) or is_official_payee(p) for p in fields.payees)
+def _payee_official(fields: Fields, issuer: dict[str, Any] | None = None) -> bool:
+    """Official means a SEBI @valid handle, an entry in official_payees.json, or a payee the issuer registered.
+
+    With no payee named, nothing is proven.
+    """
+    own = {normalize_payee(p) for p in (issuer or {}).get("payees", [])}
+    return bool(fields.payees) and all(
+        VALID_HANDLE.search(p) or is_official_payee(p) or normalize_payee(p) in own for p in fields.payees
+    )
 
 
-def run(fields: Fields, text: str) -> list[Signal]:
+def run(fields: Fields, text: str, issuer: dict[str, Any] | None = None) -> list[Signal]:
     text = lexicon.normalize(text)
     urgent = fields.deadline_hours is not None and fields.deadline_hours <= 24
     refund = lexicon.promises_refund(text)
@@ -39,7 +46,7 @@ def run(fields: Fields, text: str) -> list[Signal]:
             pressure_hi.append(hi)
 
     signals: list[Signal] = []
-    if fields.demands_payment and not _payee_official(fields) and pressure_en:
+    if fields.demands_payment and not _payee_official(fields, issuer) and pressure_en:
         signals.append(
             Signal(
                 "ask",

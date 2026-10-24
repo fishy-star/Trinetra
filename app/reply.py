@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.models import Kind, PointsTo, Signal, Strength, Verdict
+from app.registry import verify_route
 
 VERDICT_LINE = {
     "en": {
@@ -109,6 +110,11 @@ def sender_group(sender_type: str | None, sender_id: str | None) -> str:
     return "general"
 
 
+def verify_line(sender_type: str | None, sender_id: str | None, lang: str) -> str | None:
+    route = verify_route(sender_type, sender_id)
+    return route[lang] if route else None
+
+
 def build(
     verdict: Verdict,
     signals: list[Signal],
@@ -116,10 +122,12 @@ def build(
     lang: str,
     sender: str = "general",
     reviewed: bool = False,
+    verify: str | None = None,
 ) -> str:
     """`sender` is the group from `sender_group`: "authority", "finance" or "general".
 
-    `reviewed` is set for R1, a match to a reviewer-confirmed fake.
+    `reviewed` is set for R1, a match to a reviewer-confirmed fake. `verify` is a line telling the
+    person where to check the notice at its source; it is shown only when we could not settle it.
     """
     parts = [VERDICT_LINE[lang][verdict]]
     if verdict is not Verdict.COULD_NOT_CHECK:
@@ -127,6 +135,8 @@ def build(
         if reviewed and verdict is Verdict.LIKELY_FAKE:
             lines = [KNOWN_FAKE[lang], *lines][:3]
         parts.append("\n".join(f"• {r}" for r in lines) if lines else NO_SIGNALS[lang])
+    if verify and verdict in (Verdict.SUSPICIOUS, Verdict.CANNOT_VERIFY):
+        parts.append(verify)
     if verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
         parts.append(ACTION_FAKE[sender][lang])
     if kind is Kind.VOICE:

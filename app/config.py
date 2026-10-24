@@ -29,6 +29,7 @@ class Settings:
     data_dir: Path
     media_ttl_hours: int
     user_id_salt: str | None
+    public_base_url: str
 
     def __repr__(self) -> str:
         # Never print secrets, even by accident.
@@ -54,6 +55,7 @@ class Settings:
             data_dir=ROOT / env("DATA_DIR", "data/runtime"),  # a relative path is taken from the repo root
             media_ttl_hours=int(env("MEDIA_TTL_HOURS", "24")),
             user_id_salt=env("USER_ID_SALT"),
+            public_base_url=env("PUBLIC_BASE_URL", "http://localhost:8000"),
         )
 
 
