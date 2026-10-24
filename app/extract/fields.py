@@ -43,19 +43,19 @@ def _unique(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
 
 
-def _sender(text: str) -> tuple[str | None, str | None, list[str]]:
-    """Earliest-named body is the claimed sender. Ties go to the more specific registry entry."""
-    hits: list[tuple[int, int, str, str]] = []
+def _sender(text: str) -> tuple[str | None, str | None, str | None, list[str]]:
+    """Earliest-named body is the claimed sender: (name, id, type, all names). Ties go to the more specific entry."""
+    hits: list[tuple[int, int, str, str, str]] = []
     for priority, agency in enumerate(agencies()):
         starts = [m for p in agency.patterns if (m := p.search(text))]
         if starts:
             first = min(starts, key=lambda m: m.start())
-            hits.append((first.start(), priority, agency.name or first.group(0).strip(), agency.type))
+            hits.append((first.start(), priority, agency.name or first.group(0).strip(), agency.id, agency.type))
     if not hits:
-        return None, None, []
+        return None, None, None, []
     hits.sort()
-    _, _, name, kind = hits[0]
-    return name, kind, _unique([h[2] for h in hits])
+    _, _, name, agency_id, kind = hits[0]
+    return name, agency_id, kind, _unique([h[2] for h in hits])
 
 
 def extract(text: str) -> Fields:
@@ -74,12 +74,13 @@ def extract(text: str) -> Fields:
 
     amounts = _unique([m.group(0).strip() for m in AMOUNT.finditer(text)])
     phones = _unique([m.group(0) for m in MOBILE.finditer(text)] + [m.group(0) for m in SERVICE_NUMBER.finditer(text)])
-    sender, sender_type, named = _sender(text)
+    sender, sender_id, sender_type, named = _sender(text)
 
     payee_or_amount = bool(upi_ids or accounts or amounts)
     demands_payment = payee_or_amount and bool(lexicon.payment_sentences(text))
     return Fields(
         claimed_sender=sender,
+        sender_id=sender_id,
         sender_type=sender_type,
         agencies=named,
         case_numbers=_unique([m.group(1) or m.group(2) for m in CASE_NUMBER.finditer(text)]),

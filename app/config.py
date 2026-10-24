@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-ENGINE_VERSION = "0.1.0"
+ENGINE_VERSION = "0.2.0"
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_DIR = ROOT / "data" / "registry"
 

@@ -25,7 +25,7 @@ def run_once(api: TelegramAPI, intake: Intake, offset: int | None, timeout: int 
     """Fetch one batch of updates, handle each, and return the next offset."""
     for update in api.get_updates(offset, timeout=timeout):
         offset = update["update_id"] + 1
-        msg = parse_update(update)
+        msg = parse_update(update, api)
         if msg is None:
             continue
         try:

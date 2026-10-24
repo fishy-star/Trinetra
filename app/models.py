@@ -51,6 +51,7 @@ class Account:
 @dataclass
 class Fields:
     claimed_sender: str | None = None
+    sender_id: str | None = None  # agency id from agencies.json, e.g. "rbi", "bank"
     sender_type: str | None = None  # agency type from agencies.json, e.g. "court", "bank"
     agencies: list[str] = field(default_factory=list)
     case_numbers: list[str] = field(default_factory=list)

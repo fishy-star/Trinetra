@@ -8,13 +8,15 @@ from functools import lru_cache, partial
 from html import escape
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app import pipeline
 from app.channels.telegram import TelegramAPI, parse_update
 from app.config import settings
-from app.intake import Intake
+from app.extract import ocr
+from app.intake import MAX_BYTES, MESSAGES, Intake
 from app.store import Store
 
 app = FastAPI(title="Trinetra")
@@ -47,7 +49,7 @@ async def telegram_webhook(
         raise HTTPException(404)
     if not hmac.compare_digest(x_telegram_bot_api_secret_token or "", deps.secret):
         raise HTTPException(403)
-    msg = parse_update(await request.json())
+    msg = parse_update(await request.json(), deps.api)
     if msg is not None:
         # Answer Telegram at once; the "Checking…" message and the verdict are sent from the background task.
         background.add_task(deps.intake.handle, msg, partial(deps.api.send_message, msg.chat_id))
@@ -85,7 +87,7 @@ PAGE = """<!doctype html>
 <body>
 <main>
   <h1>Trinetra</h1>
-  <p class="lead">Paste a suspicious message to check it before you pay.</p>
+  <p class="lead">Paste a suspicious message, or upload a notice, to check it before you pay.</p>
   <form method="post" action="/check" enctype="multipart/form-data">
     <label for="text">Message text</label>
     <textarea id="text" name="text" maxlength="{max_chars}">{text}</textarea>
@@ -130,8 +132,16 @@ async def check_form(
 ) -> HTMLResponse:
     lang = lang if lang in ("en", "hi") else ""
     if file is not None and file.filename:
-        # Image and PDF reading arrives with OCR in milestone 3.
-        return _page(text, "Image and PDF checks are not available yet. Paste the message text instead.", lang)
+        say = MESSAGES[lang or "en"]
+        data = await file.read(MAX_BYTES["pdf"] + 1)
+        kind = ocr.sniff(data)  # by magic bytes, never by file name
+        if kind is None:
+            return _page(text, say["unsupported"], lang)
+        if len(data) > MAX_BYTES[kind]:
+            return _page(text, say["too_large"], lang)
+        # OCR blocks for about a second, so keep it off the event loop.
+        result = await run_in_threadpool(pipeline.check_file, data, lang=lang or None)
+        return _page(text, result.reply, lang)
     if not text.strip():
         return _page(text, "Paste a message to check.", lang)
     result = pipeline.check_text(text[:MAX_TEXT_CHARS], lang=lang or None)

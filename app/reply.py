@@ -22,12 +22,32 @@ VERDICT_LINE = {
     },
 }
 
+# The action line after a fake or suspicious verdict, tailored to who the message claims to be from.
 ACTION_FAKE = {
-    "en": "Do not pay. No police, CBI, ED or court arrests anyone on a video call or asks for money to clear your "
-    "name. Reply 1 to report this. Reply 2 if you already paid.",
-    "hi": "भुगतान न करें। पुलिस, CBI, ED या कोई न्यायालय वीडियो कॉल पर गिरफ़्तारी नहीं करता और नाम साफ़ करने के लिए "
-    "पैसे नहीं माँगता। रिपोर्ट करने के लिए 1 भेजें। अगर आप भुगतान कर चुके हैं तो 2 भेजें।",
+    "authority": {
+        "en": "Do not pay. No police, CBI, ED or court arrests anyone on a video call or asks for money to clear your "
+        "name. Reply 1 to report this. Reply 2 if you already paid.",
+        "hi": "भुगतान न करें। पुलिस, CBI, ED या कोई न्यायालय वीडियो कॉल पर गिरफ़्तारी नहीं करता और नाम साफ़ करने के लिए "
+        "पैसे नहीं माँगता। रिपोर्ट करने के लिए 1 भेजें। अगर आप भुगतान कर चुके हैं तो 2 भेजें।",
+    },
+    "finance": {
+        "en": "Do not pay. Your bank will never ask you to pay a fee to a UPI ID or update KYC through a link. Contact "
+        "your bank through its official app or branch. Reply 1 to report this. Reply 2 if you already paid.",
+        "hi": "भुगतान न करें। आपका बैंक कभी भी किसी UPI ID पर शुल्क भेजने या किसी लिंक से KYC अपडेट करने को नहीं कहेगा। "
+        "अपने बैंक से उसके आधिकारिक ऐप या शाखा के ज़रिए संपर्क करें। रिपोर्ट करने के लिए 1 भेजें। अगर आप भुगतान कर चुके "
+        "हैं तो 2 भेजें।",
+    },
+    "general": {
+        "en": "Do not pay. Check with the sender through a number or website you already trust, not one given in "
+        "this message. Reply 1 to report this. Reply 2 if you already paid.",
+        "hi": "भुगतान न करें। भेजने वाले से ऐसे नंबर या वेबसाइट के ज़रिए पुष्टि करें जिस पर आपको पहले से भरोसा है, इस संदेश "
+        "में दिए गए नंबर से नहीं। रिपोर्ट करने के लिए 1 भेजें। अगर आप भुगतान कर चुके हैं तो 2 भेजें।",
+    },
 }
+# RBI is a regulator, but people meet it as "my bank" scams, so it gets the bank line.
+FINANCE_IDS = frozenset({"rbi", "sebi", "npci"})
+FINANCE_TYPES = frozenset({"bank", "financial"})
+AUTHORITY_TYPES = frozenset({"government", "court", "regulator", "police"})
 ACTION_VOICE = {
     "en": "Call the person back on the number you already have for them before you send anything.",
     "hi": "कुछ भी भेजने से पहले उस व्यक्ति को उस नंबर पर वापस कॉल करें जो आपके पास पहले से है।",
@@ -75,13 +95,29 @@ def reasons(verdict: Verdict, signals: list[Signal], lang: str) -> list[str]:
     return out[:3]
 
 
-def build(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, reviewed: bool = False) -> str:
+def sender_group(sender_type: str | None, sender_id: str | None) -> str:
+    if sender_id in FINANCE_IDS or sender_type in FINANCE_TYPES:
+        return "finance"
+    if sender_type in AUTHORITY_TYPES:
+        return "authority"
+    return "general"
+
+
+def build(
+    verdict: Verdict,
+    signals: list[Signal],
+    kind: Kind,
+    lang: str,
+    sender: str = "general",
+    reviewed: bool = False,
+) -> str:
+    """`sender` is the group from `sender_group`: "authority", "finance" or "general"."""
     parts = [VERDICT_LINE[lang][verdict]]
     if verdict is not Verdict.COULD_NOT_CHECK:
         lines = reasons(verdict, signals, lang)
         parts.append("\n".join(f"• {r}" for r in lines) if lines else NO_SIGNALS[lang])
     if verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
-        parts.append(ACTION_FAKE[lang])
+        parts.append(ACTION_FAKE[sender][lang])
     if kind is Kind.VOICE:
         parts.append(ACTION_VOICE[lang])
     parts.append((FOOTER_REVIEWED if reviewed else FOOTER_UNREVIEWED)[lang])

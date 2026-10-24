@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS results (
     fields_json     TEXT NOT NULL,
     needs_review    INTEGER NOT NULL,
     created_at      TEXT NOT NULL,
+    lang            TEXT,
     PRIMARY KEY (sha256, engine_version)
 );
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -65,6 +66,9 @@ class CachedResult:
     verdict: Verdict
     rule_row: str
     signals: list[Signal]
+    sender_type: str | None
+    sender_id: str | None
+    lang: str | None  # language of the checked item, for replying when the user has not chosen one
 
 
 class Store:
@@ -73,6 +77,9 @@ class Store:
         self.path = path
         with self._db() as db:
             db.executescript(SCHEMA)
+            # Databases made before results.lang existed.
+            if "lang" not in {r["name"] for r in db.execute("PRAGMA table_info(results)")}:
+                db.execute("ALTER TABLE results ADD COLUMN lang TEXT")
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
@@ -146,12 +153,22 @@ class Store:
             Signal(s["check"], s["code"], Strength(s["strength"]), PointsTo(s["points_to"]), s["reason_en"], s["reason_hi"])
             for s in json.loads(row["signals_json"])
         ]
-        return CachedResult(Kind(row["kind"]), Verdict(row["verdict"]), row["rule_row"], signals)
+        fields = json.loads(row["fields_json"])
+        return CachedResult(
+            Kind(row["kind"]),
+            Verdict(row["verdict"]),
+            row["rule_row"],
+            signals,
+            fields.get("sender_type"),
+            fields.get("sender_id"),
+            row["lang"],
+        )
 
     def save_result(self, result: Result) -> None:
         with self._db() as db:
             db.execute(
-                "INSERT OR REPLACE INTO results VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO results (sha256, engine_version, kind, verdict, rule_row, signals_json, "
+                "fields_json, needs_review, created_at, lang) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.sha256,
                     result.engine_version,
@@ -162,6 +179,7 @@ class Store:
                     json.dumps(asdict(result.fields), ensure_ascii=False),
                     int(result.needs_review),
                     now().isoformat(),
+                    result.lang,
                 ),
             )
 

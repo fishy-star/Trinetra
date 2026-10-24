@@ -6,6 +6,7 @@ The bot token is part of every API URL, so it must never reach a log line or an 
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any
 
 import httpx
@@ -48,6 +49,16 @@ class TelegramAPI:
     def send_message(self, chat_id: str, text: str) -> None:
         self._call("sendMessage", chat_id=chat_id, text=text)
 
+    def download(self, file_id: str) -> bytes:
+        """Bots can download files up to 20 MB; Telegram refuses larger ones at getFile."""
+        path = self._call("getFile", file_id=file_id)["file_path"]
+        try:
+            resp = self._client.get(f"{API_BASE}/file/bot{self._token}/{path}")
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            raise TelegramError("download", type(e).__name__) from None
+        return resp.content
+
     def get_updates(self, offset: int | None, timeout: int = 30) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
         if offset is not None:
@@ -55,18 +66,31 @@ class TelegramAPI:
         return self._call("getUpdates", **params)
 
 
-def parse_update(update: dict[str, Any]) -> Inbound | None:
-    """Private-chat messages only. Groups, channels and edits are ignored."""
+def parse_update(update: dict[str, Any], api: TelegramAPI | None = None) -> Inbound | None:
+    """Private-chat messages only. Groups, channels and edits are ignored.
+
+    With `api`, photos and documents get a `fetch` that downloads them when intake asks.
+    """
     message = update.get("message")
     if not message or message.get("chat", {}).get("type") != "private":
         return None
     media = next((k for k in MEDIA_KEYS if k in message), None)
     if media in ("video_note", "sticker", "animation"):
         media = "other"
+
+    file: dict[str, Any] = {}
+    if media == "photo":
+        file = max(message["photo"], key=lambda p: p.get("file_size") or p.get("width", 0) * p.get("height", 0))
+    elif media == "document":
+        file = message["document"]
+    file_id = file.get("file_id")
     return Inbound(
         channel="telegram",
         chat_id=str(message["chat"]["id"]),
         text=message.get("text"),
         media=media,
         lang_hint=message.get("from", {}).get("language_code"),
+        mime=file.get("mime_type"),
+        file_size=file.get("file_size"),
+        fetch=partial(api.download, file_id) if api and file_id else None,
     )

@@ -18,6 +18,7 @@ R = rf"(?![\w{DEV}])"
 
 def normalize(text: str) -> str:
     text = unicodedata.normalize("NFC", text)
+    text = re.sub(r"[ \t ]+", " ", text)
     return text.replace("़", "").replace("ँ", "ं")
 
 
@@ -30,9 +31,30 @@ def _c(*patterns: str) -> re.Pattern[str]:
 _ABBREV = re.compile(r"(?:\b(?:rs|no|mr|mrs|ms|dr|sh|smt|a/c|ref|st|vs)\.)$", re.IGNORECASE)
 
 
+_SENTENCE_END = re.compile(r"[.!?।:]\s*$")
+
+
+def unwrap(text: str) -> str:
+    """Rejoin lines that OCR or PDF extraction wrapped inside a paragraph.
+
+    A wrapped line runs close to the full text width and does not end a sentence. Short lines
+    (headers, signatures, "A/c No." boxes) keep their line break.
+    """
+    lines = text.splitlines()
+    width = max((len(ln.strip()) for ln in lines), default=0)
+    out: list[str] = []
+    for ln in lines:
+        prev = out[-1] if out else ""
+        if prev.strip() and ln.strip() and len(prev.strip()) >= 0.6 * width and not _SENTENCE_END.search(prev):
+            out[-1] = f"{prev.rstrip()} {ln.strip()}"
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
 def sentences(text: str) -> list[str]:
     """Split on sentence punctuation followed by space, keeping abbreviations like "Rs." together."""
-    parts = re.split(r"(?<=[.!?।])\s+|\n+", text)
+    parts = re.split(r"(?<=[.!?।])\s+|\n+", unwrap(text))
     out: list[str] = []
     for p in parts:
         if out and _ABBREV.search(out[-1]):
