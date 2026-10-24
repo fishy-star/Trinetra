@@ -1,0 +1,64 @@
+file,kind,format,lang,truth,expected_verdict,must_never_be,split,what_it_tests
+png/F1_sc_warrant_en.png,notice,png,en,forged,likely_fake,verified_official,dev,"ask: transfer of savings to a non-official account, 2-hour deadline, secrecy; source: Gmail contact for a court"
+pdf/F1_sc_warrant_en.pdf,notice,pdf,en,forged,likely_fake,verified_official,dev,"ask: transfer of savings to a non-official account, 2-hour deadline, secrecy; source: Gmail contact for a court"
+variants/F1_sc_warrant_en__whatsapp.jpg,notice,whatsapp_jpg,en,forged,likely_fake,verified_official,test,"ask: transfer of savings to a non-official account, 2-hour deadline, secrecy; source: Gmail contact for a court"
+variants/F1_sc_warrant_en__photo.jpg,notice,photo_jpg,en,forged,likely_fake,verified_official,test,"ask: transfer of savings to a non-official account, 2-hour deadline, secrecy; source: Gmail contact for a court"
+variants/F1_sc_warrant_en__crop.jpg,notice,crop_jpg,en,forged,likely_fake_or_suspicious,verified_official,test,lower part cut off: payee or contact may be missing; must never be verified_official
+png/F2_cbi_deposit_hi.png,notice,png,hi,forged,likely_fake,verified_official,dev,"ask: UPI 'security deposit', same-day deadline, secrecy; source: personal mobile as official contact"
+pdf/F2_cbi_deposit_hi.pdf,notice,pdf,hi,forged,likely_fake,verified_official,dev,"ask: UPI 'security deposit', same-day deadline, secrecy; source: personal mobile as official contact"
+variants/F2_cbi_deposit_hi__whatsapp.jpg,notice,whatsapp_jpg,hi,forged,likely_fake,verified_official,test,"ask: UPI 'security deposit', same-day deadline, secrecy; source: personal mobile as official contact"
+variants/F2_cbi_deposit_hi__photo.jpg,notice,photo_jpg,hi,forged,likely_fake,verified_official,test,"ask: UPI 'security deposit', same-day deadline, secrecy; source: personal mobile as official contact"
+variants/F2_cbi_deposit_hi__crop.jpg,notice,crop_jpg,hi,forged,likely_fake_or_suspicious,verified_official,test,lower part cut off: payee or contact may be missing; must never be verified_official
+png/F3_ed_freeze_bi.png,notice,png,bi,forged,likely_fake,verified_official,dev,"ask: move all funds to a trading firm's account, 24-hour deadline, secrecy; source: link on a non-government domain"
+pdf/F3_ed_freeze_bi.pdf,notice,pdf,bi,forged,likely_fake,verified_official,dev,"ask: move all funds to a trading firm's account, 24-hour deadline, secrecy; source: link on a non-government domain"
+variants/F3_ed_freeze_bi__whatsapp.jpg,notice,whatsapp_jpg,bi,forged,likely_fake,verified_official,test,"ask: move all funds to a trading firm's account, 24-hour deadline, secrecy; source: link on a non-government domain"
+variants/F3_ed_freeze_bi__photo.jpg,notice,photo_jpg,bi,forged,likely_fake,verified_official,test,"ask: move all funds to a trading firm's account, 24-hour deadline, secrecy; source: link on a non-government domain"
+variants/F3_ed_freeze_bi__crop.jpg,notice,crop_jpg,bi,forged,likely_fake_or_suspicious,verified_official,test,lower part cut off: payee or contact may be missing; must never be verified_official
+png/F4_dpb_surety_en.png,notice,png,en,forged,likely_fake,verified_official,dev,"ask: refundable surety by RTGS, same-day deadline, secrecy; source: link on a non-government domain"
+pdf/F4_dpb_surety_en.pdf,notice,pdf,en,forged,likely_fake,verified_official,dev,"ask: refundable surety by RTGS, same-day deadline, secrecy; source: link on a non-government domain"
+variants/F4_dpb_surety_en__whatsapp.jpg,notice,whatsapp_jpg,en,forged,likely_fake,verified_official,test,"ask: refundable surety by RTGS, same-day deadline, secrecy; source: link on a non-government domain"
+variants/F4_dpb_surety_en__photo.jpg,notice,photo_jpg,en,forged,likely_fake,verified_official,test,"ask: refundable surety by RTGS, same-day deadline, secrecy; source: link on a non-government domain"
+variants/F4_dpb_surety_en__crop.jpg,notice,crop_jpg,en,forged,likely_fake_or_suspicious,verified_official,test,lower part cut off: payee or contact may be missing; must never be verified_official
+png/F5_rbi_penalty_en.png,notice,png,en,forged,likely_fake,verified_official,dev,"ask: penalty by UPI, 3-hour deadline, told not to visit the branch; source: link on a non-government domain"
+pdf/F5_rbi_penalty_en.pdf,notice,pdf,en,forged,likely_fake,verified_official,dev,"ask: penalty by UPI, 3-hour deadline, told not to visit the branch; source: link on a non-government domain"
+variants/F5_rbi_penalty_en__whatsapp.jpg,notice,whatsapp_jpg,en,forged,likely_fake,verified_official,test,"ask: penalty by UPI, 3-hour deadline, told not to visit the branch; source: link on a non-government domain"
+variants/F5_rbi_penalty_en__photo.jpg,notice,photo_jpg,en,forged,likely_fake,verified_official,test,"ask: penalty by UPI, 3-hour deadline, told not to visit the branch; source: link on a non-government domain"
+variants/F5_rbi_penalty_en__crop.jpg,notice,crop_jpg,en,forged,likely_fake_or_suspicious,verified_official,test,lower part cut off: payee or contact may be missing; must never be verified_official
+png/H2_sim_police_en.png,notice,png,en,forged,suspicious,verified_official,dev,source: personal WhatsApp number as police contact; ask: 2-hour deadline and secrecy but no payment yet
+pdf/H2_sim_police_en.pdf,notice,pdf,en,forged,suspicious,verified_official,dev,source: personal WhatsApp number as police contact; ask: 2-hour deadline and secrecy but no payment yet
+variants/H2_sim_police_en__whatsapp.jpg,notice,whatsapp_jpg,en,forged,suspicious,verified_official,test,source: personal WhatsApp number as police contact; ask: 2-hour deadline and secrecy but no payment yet
+variants/H2_sim_police_en__photo.jpg,notice,photo_jpg,en,forged,suspicious,verified_official,test,source: personal WhatsApp number as police contact; ask: 2-hour deadline and secrecy but no payment yet
+variants/H2_sim_police_en__crop.jpg,notice,crop_jpg,en,forged,likely_fake_or_suspicious,verified_official,test,lower part cut off: payee or contact may be missing; must never be verified_official
+png/G1_court_summons_en.png,notice,png,en,genuine,cannot_verify,likely_fake,dev,"no payment demand, appear in person, official verification route; no digital signature, so source is not proven"
+pdf/G1_court_summons_en.pdf,notice,pdf,en,genuine,cannot_verify,likely_fake,dev,"no payment demand, appear in person, official verification route; no digital signature, so source is not proven"
+variants/G1_court_summons_en__whatsapp.jpg,notice,whatsapp_jpg,en,genuine,cannot_verify,likely_fake,test,"no payment demand, appear in person, official verification route; no digital signature, so source is not proven"
+variants/G1_court_summons_en__photo.jpg,notice,photo_jpg,en,genuine,cannot_verify,likely_fake,test,"no payment demand, appear in person, official verification route; no digital signature, so source is not proven"
+variants/G1_court_summons_en__crop.jpg,notice,crop_jpg,en,genuine,cannot_verify,likely_fake,test,"no payment demand, appear in person, official verification route; no digital signature, so source is not proven"
+png/G2_bank_rekyc_hi.png,notice,png,hi,genuine,cannot_verify,likely_fake,dev,"no payment, visit branch or official site, says the bank never asks for OTP; tests false positives on 'OTP' and 'KYC'"
+pdf/G2_bank_rekyc_hi.pdf,notice,pdf,hi,genuine,cannot_verify,likely_fake,dev,"no payment, visit branch or official site, says the bank never asks for OTP; tests false positives on 'OTP' and 'KYC'"
+variants/G2_bank_rekyc_hi__whatsapp.jpg,notice,whatsapp_jpg,hi,genuine,cannot_verify,likely_fake,test,"no payment, visit branch or official site, says the bank never asks for OTP; tests false positives on 'OTP' and 'KYC'"
+variants/G2_bank_rekyc_hi__photo.jpg,notice,photo_jpg,hi,genuine,cannot_verify,likely_fake,test,"no payment, visit branch or official site, says the bank never asks for OTP; tests false positives on 'OTP' and 'KYC'"
+variants/G2_bank_rekyc_hi__crop.jpg,notice,crop_jpg,hi,genuine,cannot_verify,likely_fake,test,"no payment, visit branch or official site, says the bank never asks for OTP; tests false positives on 'OTP' and 'KYC'"
+png/G3_tax_intimation_en.png,notice,png,en,genuine,cannot_verify,likely_fake,dev,respond on the official portal only; mentions 'payment' and 'UPI' only to warn; tests keyword false positives
+pdf/G3_tax_intimation_en.pdf,notice,pdf,en,genuine,cannot_verify,likely_fake,dev,respond on the official portal only; mentions 'payment' and 'UPI' only to warn; tests keyword false positives
+variants/G3_tax_intimation_en__whatsapp.jpg,notice,whatsapp_jpg,en,genuine,cannot_verify,likely_fake,test,respond on the official portal only; mentions 'payment' and 'UPI' only to warn; tests keyword false positives
+variants/G3_tax_intimation_en__photo.jpg,notice,photo_jpg,en,genuine,cannot_verify,likely_fake,test,respond on the official portal only; mentions 'payment' and 'UPI' only to warn; tests keyword false positives
+variants/G3_tax_intimation_en__crop.jpg,notice,crop_jpg,en,genuine,cannot_verify,likely_fake,test,respond on the official portal only; mentions 'payment' and 'UPI' only to warn; tests keyword false positives
+png/H1_mf_sip_valid_en.png,notice,png,en,genuine,cannot_verify,likely_fake,dev,"a real payment request, but to a SEBI @valid handle, no secrecy, normal due date; must not be called fake"
+pdf/H1_mf_sip_valid_en.pdf,notice,pdf,en,genuine,cannot_verify,likely_fake,dev,"a real payment request, but to a SEBI @valid handle, no secrecy, normal due date; must not be called fake"
+variants/H1_mf_sip_valid_en__whatsapp.jpg,notice,whatsapp_jpg,en,genuine,cannot_verify,likely_fake,test,"a real payment request, but to a SEBI @valid handle, no secrecy, normal due date; must not be called fake"
+variants/H1_mf_sip_valid_en__photo.jpg,notice,photo_jpg,en,genuine,cannot_verify,likely_fake,test,"a real payment request, but to a SEBI @valid handle, no secrecy, normal due date; must not be called fake"
+variants/H1_mf_sip_valid_en__crop.jpg,notice,crop_jpg,en,genuine,cannot_verify,likely_fake,test,"a real payment request, but to a SEBI @valid handle, no secrecy, normal due date; must not be called fake"
+png/H3_police_awareness_hi.png,notice,png,hi,genuine,cannot_verify,likely_fake,dev,"awareness notice full of scam words ('गिरफ़्तारी', 'पैसे ट्रांसफ़र') but no demand; tests keyword false positives"
+pdf/H3_police_awareness_hi.pdf,notice,pdf,hi,genuine,cannot_verify,likely_fake,dev,"awareness notice full of scam words ('गिरफ़्तारी', 'पैसे ट्रांसफ़र') but no demand; tests keyword false positives"
+variants/H3_police_awareness_hi__whatsapp.jpg,notice,whatsapp_jpg,hi,genuine,cannot_verify,likely_fake,test,"awareness notice full of scam words ('गिरफ़्तारी', 'पैसे ट्रांसफ़र') but no demand; tests keyword false positives"
+variants/H3_police_awareness_hi__photo.jpg,notice,photo_jpg,hi,genuine,cannot_verify,likely_fake,test,"awareness notice full of scam words ('गिरफ़्तारी', 'पैसे ट्रांसफ़र') but no demand; tests keyword false positives"
+variants/H3_police_awareness_hi__crop.jpg,notice,crop_jpg,hi,genuine,cannot_verify,likely_fake,test,"awareness notice full of scam words ('गिरफ़्तारी', 'पैसे ट्रांसफ़र') but no demand; tests keyword false positives"
+texts.csv#T1,text,text,en,forged,likely_fake,verified_official,dev,forwarded text message
+texts.csv#T2,text,text,hi,forged,likely_fake,verified_official,dev,forwarded text message
+texts.csv#T3,text,text,en,genuine,cannot_verify,likely_fake,dev,forwarded text message
+texts.csv#T4,text,text,hi,genuine,cannot_verify,likely_fake,dev,forwarded text message
+voice/V1_clone_son_hi.ogg (record it),voice,audio,hi,cloned,suspicious,verified_official,test,a voice note can never be verified; scam ask without proof of source gives suspicious
+voice/V2_clone_uncle_en.ogg (record it),voice,audio,en,cloned,suspicious,verified_official,test,a voice note can never be verified; scam ask without proof of source gives suspicious
+voice/V3_real_son_hi.ogg (record it),voice,audio,hi,real,cannot_verify,likely_fake,test,a voice note can never be verified; scam ask without proof of source gives suspicious
+voice/V4_real_uncle_en.ogg (record it),voice,audio,en,real,cannot_verify,likely_fake,test,a voice note can never be verified; scam ask without proof of source gives suspicious

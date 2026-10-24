@@ -1,0 +1,5 @@
+id,truth,lang,expected_verdict,text
+T1,forged,en,likely_fake,"Dear customer, your Navdeep Bank account will be BLOCKED today. Update your PAN immediately at navdeep-kyc-update.example or pay Rs 499 reactivation fee to navdeep.kyc@ybl. Do not ignore."
+T2,forged,hi,likely_fake,"आपके नाम पर मुंबई में ड्रग्स पार्सल पकड़ा गया है। CBI अधिकारी आपसे वीडियो कॉल पर बात करेंगे। गिरफ़्तारी से बचने के लिए 2 घंटे में ₹1,50,000 इस खाते में भेजें: A/c 000912345678 IFSC XYZB0007733. किसी को न बताएँ।"
+T3,genuine,en,cannot_verify,"Rs 2,000.00 debited from A/c XX4471 on 22-10-26 to UPI ID shop.ram@okaxis. Not you? Call 1800-000-0000 or visit navdeepbank.bank.in. Navdeep Bank never asks for OTP."
+T4,genuine,hi,cannot_verify,"पापा, मैं हॉस्टल पहुँच गया हूँ। रात को फ़ोन करूँगा।"
