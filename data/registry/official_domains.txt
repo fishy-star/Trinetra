@@ -1,0 +1,9 @@
+# Official domain allowlist. One registered domain suffix per line.
+# A URL is official only if its host equals one of these or ends with "." + one of these.
+# Matching is on the registered domain, never on substrings: rbi-kyc-update.example is not official.
+gov.in
+nic.in
+bank.in
+fin.in
+rbi.org.in
+npci.org.in
