@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.models import Kind, PointsTo, Signal, Strength, Verdict
 from app.registry import verify_route
 
@@ -144,3 +146,117 @@ def build(
     parts.append((FOOTER_REVIEWED if reviewed else FOOTER_UNREVIEWED)[lang])
     return "\n\n".join(parts)
 
+
+
+# --- the bot's short reply and its "Why?" ------------------------------------------------------
+# The bot answers older, non-technical users: a plain verdict line, the single strongest reason,
+# one action line and a one-line review status. Everything else is one tap away, behind "Why?".
+# The web page and the API keep the full reply from build().
+
+SHORT_VERDICT = {
+    "en": {
+        Verdict.LIKELY_FAKE: "Likely fake. Do not pay.",
+        Verdict.SUSPICIOUS: "Suspicious. Check before you pay.",
+        Verdict.CANNOT_VERIFY: "We couldn't verify this.",
+        Verdict.VERIFIED_OFFICIAL: "Verified official.",
+        Verdict.COULD_NOT_CHECK: "We couldn't read this file.",
+    },
+    "hi": {
+        Verdict.LIKELY_FAKE: "संभवतः नकली। कोई भुगतान न करें।",
+        Verdict.SUSPICIOUS: "संदिग्ध। भुगतान से पहले जाँच करें।",
+        Verdict.CANNOT_VERIFY: "हम इसकी पुष्टि नहीं कर सके।",
+        Verdict.VERIFIED_OFFICIAL: "आधिकारिक, पुष्टि हुई।",
+        Verdict.COULD_NOT_CHECK: "हम यह फ़ाइल नहीं पढ़ सके।",
+    },
+}
+# One action line. Fake and suspicious replies get the line for who the message claims to be from.
+SHORT_ACTION_FAKE = {
+    "authority": {
+        "en": "No police, CBI, ED or court arrests anyone on a video call or asks for money to clear your name.",
+        "hi": "पुलिस, CBI, ED या कोई न्यायालय वीडियो कॉल पर गिरफ़्तारी नहीं करता और नाम साफ़ करने के लिए पैसे नहीं माँगता।",
+    },
+    "finance": {
+        "en": "Your bank will never ask you to pay a fee to a UPI ID or update KYC through a link.",
+        "hi": "आपका बैंक कभी भी किसी UPI ID पर शुल्क भेजने या किसी लिंक से KYC अपडेट करने को नहीं कहेगा।",
+    },
+    "general": {
+        "en": "Check with the sender on a number you already trust, not one given in this message.",
+        "hi": "भेजने वाले से ऐसे नंबर पर पुष्टि करें जिस पर आपको पहले से भरोसा है, इस संदेश में दिए नंबर पर नहीं।",
+    },
+}
+SHORT_ACTION = {
+    # "Cannot verify" must never read as safe, so its action line says so.
+    Verdict.CANNOT_VERIFY: {
+        "en": "That does not mean it is safe. If it asks for money, confirm through an official number first.",
+        "hi": "इसका मतलब यह नहीं कि यह सुरक्षित है। अगर इसमें पैसे माँगे गए हैं, तो पहले किसी आधिकारिक नंबर से पुष्टि करें।",
+    },
+    Verdict.VERIFIED_OFFICIAL: {
+        "en": "Act on it only through the official office or website it names.",
+        "hi": "इस पर केवल उसमें बताए गए आधिकारिक कार्यालय या वेबसाइट के ज़रिए ही कदम उठाएँ।",
+    },
+    Verdict.COULD_NOT_CHECK: {
+        "en": "Send a clearer photo, or check with the sender through an official number.",
+        "hi": "साफ़ फ़ोटो भेजें, या आधिकारिक नंबर पर भेजने वाले से पुष्टि करें।",
+    },
+}
+SHORT_ACTION_VOICE = {
+    "en": "Call the person back on the number you already have for them before you send anything.",
+    "hi": "कुछ भी भेजने से पहले उस व्यक्ति को उस नंबर पर वापस कॉल करें जो आपके पास पहले से है।",
+}
+FOOTER_SHORT = {
+    False: {"en": "Automated check · not yet reviewed by a person", "hi": "स्वचालित जाँच · अभी किसी व्यक्ति ने समीक्षा नहीं की"},
+    True: {"en": "✔ Reviewed by the Trinetra team", "hi": "✔ Trinetra टीम द्वारा समीक्षा की गई"},
+}
+WHY_HEADING = {"en": "Why we said this:", "hi": "हमने ऐसा क्यों कहा:"}
+_ORDER = {check: i for i, check in enumerate(CHECK_ORDER)}
+
+
+def first_sentence(text: str) -> str:
+    parts = re.split(r"(?<=[.।!?])\s+", text.strip(), maxsplit=1)
+    return parts[0]
+
+
+def _pointing(verdict: Verdict, signals: list[Signal]) -> list[Signal]:
+    """Signals that support the verdict, strongest first, source before ask before media."""
+    wanted = PointsTo.GENUINE if verdict is Verdict.VERIFIED_OFFICIAL else PointsTo.FAKE
+    mine = [s for s in signals if s.points_to is wanted]
+    return sorted(mine, key=lambda s: (_RANK[s.strength], _ORDER.get(s.check, 9)))
+
+
+def strongest_reason(verdict: Verdict, signals: list[Signal], lang: str, reviewed: bool = False) -> str | None:
+    if verdict is Verdict.COULD_NOT_CHECK:
+        return None
+    if reviewed and verdict is Verdict.LIKELY_FAKE:
+        return KNOWN_FAKE[lang]
+    mine = _pointing(verdict, signals)
+    if mine:
+        return first_sentence(mine[0].reason_hi if lang == "hi" else mine[0].reason_en)
+    return first_sentence(NO_SIGNALS[lang])
+
+
+def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender: str = "general",
+          reviewed: bool = False) -> str:
+    """The bot's reply: verdict line, the strongest reason, one action line, one line of review status."""
+    if kind is Kind.VOICE and verdict is not Verdict.COULD_NOT_CHECK:
+        action = SHORT_ACTION_VOICE[lang]
+    elif verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
+        action = SHORT_ACTION_FAKE[sender][lang]
+    else:
+        action = SHORT_ACTION[verdict][lang]
+    reason = strongest_reason(verdict, signals, lang, reviewed)
+    parts = [SHORT_VERDICT[lang][verdict], *([reason] if reason else []), action, FOOTER_SHORT[reviewed][lang]]
+    return "\n\n".join(parts)
+
+
+def why(verdict: Verdict, signals: list[Signal], lang: str, reviewed: bool = False, verify: str | None = None) -> str:
+    """Everything behind "Why?": every reason in full, the official place to check, the review status."""
+    lines = [s.reason_hi if lang == "hi" else s.reason_en for s in _pointing(verdict, signals)]
+    if reviewed and verdict is Verdict.LIKELY_FAKE:
+        lines.insert(0, KNOWN_FAKE[lang])
+    if not lines and verdict is not Verdict.COULD_NOT_CHECK:
+        lines = [NO_SIGNALS[lang]]
+    parts = [WHY_HEADING[lang], "\n".join(f"• {line}" for line in dict.fromkeys(lines))] if lines else []
+    if verify:
+        parts.append(verify)
+    parts.append((FOOTER_REVIEWED if reviewed else FOOTER_UNREVIEWED)[lang])
+    return "\n\n".join(parts)

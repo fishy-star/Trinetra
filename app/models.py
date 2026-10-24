@@ -96,6 +96,7 @@ class Result:
     engine_version: str
     needs_review: bool = False
     reviewed: bool = False
+    verify: dict[str, str | None] = field(default_factory=dict)  # where to check at the source, by language
 
 
 @dataclass

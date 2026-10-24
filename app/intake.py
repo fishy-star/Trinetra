@@ -12,6 +12,10 @@ import hashlib
 import hmac
 import json
 import logging
+import re
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -33,44 +37,72 @@ PER_HOUR = 10
 PER_DAY = 50
 MAX_TEXT_CHARS = 5000
 
-CONSENT = (
-    "Trinetra checks notices, voice notes and messages you forward. We delete your file within 24 hours unless "
-    "you report it. We do not collect your contacts, chats or location. Trinetra never asks for an OTP, PIN or "
-    "payment. This service is for adults. Trinetra is a student prototype. It does not replace official advice. "
-    "If in doubt, call 1930. Reply YES to continue. Send DELETE at any time to erase your data."
-    "\n\n"
-    "Trinetra आपके भेजे गए नोटिस, वॉइस नोट और संदेशों की जाँच करता है। रिपोर्ट न करने पर हम आपकी फ़ाइल 24 घंटे में "
+# One language per message, never both. Before consent the language comes from the chat app's setting.
+CONSENT = {  # the full privacy text, behind "Privacy details"
+    "en": "Trinetra checks notices, voice notes and messages you forward. We delete your file within 24 hours "
+    "unless you report it. We do not collect your contacts, chats or location. Trinetra never asks for an OTP, PIN "
+    "or payment. This service is for adults. Trinetra is a student prototype. It does not replace official advice. "
+    "If in doubt, call 1930. Reply YES or tap Agree to continue. Send DELETE at any time to erase your data.",
+    "hi": "Trinetra आपके भेजे गए नोटिस, वॉइस नोट और संदेशों की जाँच करता है। रिपोर्ट न करने पर हम आपकी फ़ाइल 24 घंटे में "
     "मिटा देते हैं। हम आपके संपर्क, चैट या लोकेशन नहीं लेते। Trinetra कभी OTP, PIN या पैसे नहीं माँगता। यह सेवा "
     "वयस्कों के लिए है। Trinetra एक छात्र प्रोटोटाइप है। यह आधिकारिक सलाह का विकल्प नहीं है। संदेह हो तो 1930 पर कॉल करें। "
-    "जारी रखने के लिए YES भेजें। अपना डेटा मिटाने के लिए कभी भी DELETE भेजें।"
-)
-WELCOME = (
-    "Thank you. Forward a suspicious notice, voice note or message to check it. Send HINDI or ENGLISH to choose "
-    "the reply language. Tap \u201cTry a sample\u201d to see how it works."
-    "\n\n"
-    "धन्यवाद। जाँच के लिए कोई संदिग्ध नोटिस, वॉइस नोट या संदेश भेजें। जवाब की भाषा चुनने के लिए HINDI या ENGLISH भेजें। "
-    "यह कैसे काम करता है, देखने के लिए \u201cनमूना आज़माएँ\u201d दबाएँ।"
-)
-SAMPLES_INTRO = (
-    "Here are sample notices. Forward each one back to me to see what Trinetra says."
-    "\n\n"
-    "ये नमूना नोटिस हैं। हर एक को मुझे वापस फ़ॉरवर्ड करें और देखें कि Trinetra क्या कहता है।"
-)
-SAMPLE_CAPTION = "Forward this back to me to check it\nजाँच के लिए इसे मुझे वापस फ़ॉरवर्ड करें"
-TRY_SAMPLE = ("Try a sample · नमूना आज़माएँ", "samples")
-FEEDBACK_BUTTONS = {"en": ("👍 Helpful", "👎 Not helpful"), "hi": ("👍 मददगार", "👎 मददगार नहीं")}
+    "जारी रखने के लिए YES भेजें या 'सहमत हूँ' दबाएँ। अपना डेटा मिटाने के लिए कभी भी DELETE भेजें।",
+}
+CONSENT_SHORT = {  # the one line a new user sees first
+    "en": "Before I check anything: I keep what you send for 24 hours only, and I never ask for an OTP, PIN or money. "
+    "Trinetra is a student prototype. It does not replace official advice. If in doubt, call 1930.",
+    "hi": "जाँच से पहले: आप जो भेजते हैं, मैं उसे सिर्फ़ 24 घंटे रखता हूँ, और कभी OTP, PIN या पैसे नहीं माँगता। "
+    "Trinetra एक छात्र प्रोटोटाइप है। यह आधिकारिक सलाह का विकल्प नहीं है। संदेह हो तो 1930 पर कॉल करें।",
+}
+WELCOME = {
+    "en": "You're all set. Forward me any notice, message or voice note and I'll tell you if it looks fake. "
+    "Not sure how? Tap Help.",
+    "hi": "सब तैयार है। कोई भी नोटिस, संदेश या वॉइस नोट मुझे फ़ॉरवर्ड करें, मैं बताऊँगा कि वह नकली लगता है या नहीं। "
+    "तरीका नहीं पता? मदद दबाएँ।",
+}
+HELP = {
+    "en": "How to check something:\n\n"
+    "1. WhatsApp: press and hold the photo or message, tap Share (or Forward), choose Telegram, then Trinetra.\n"
+    "2. Instagram or SMS: take a screenshot and send it here. For an SMS you can also copy the text and paste it.\n"
+    "3. A PDF or email attachment: tap Share, choose Telegram, then Trinetra.\n\n"
+    "I answer in under a minute. I never ask for an OTP, PIN or money.",
+    "hi": "किसी चीज़ की जाँच कैसे करें:\n\n"
+    "1. WhatsApp: फ़ोटो या संदेश को दबाकर रखें, Share (या Forward) दबाएँ, Telegram चुनें, फिर Trinetra।\n"
+    "2. Instagram या SMS: स्क्रीनशॉट लेकर यहाँ भेजें। SMS का टेक्स्ट कॉपी करके पेस्ट भी कर सकते हैं।\n"
+    "3. PDF या ईमेल अटैचमेंट: Share दबाएँ, Telegram चुनें, फिर Trinetra।\n\n"
+    "मैं एक मिनट के अंदर जवाब देता हूँ। मैं कभी OTP, PIN या पैसे नहीं माँगता।",
+}
+NOTHING_STORED = {"en": "We hold no data for you.", "hi": "हमारे पास आपका कोई डेटा नहीं है।"}
+SAMPLES_INTRO = {
+    "en": "Here are three sample notices. Forward each one back to me to see what Trinetra says.",
+    "hi": "ये तीन नमूना नोटिस हैं। हर एक को मुझे वापस फ़ॉरवर्ड करें और देखें कि Trinetra क्या कहता है।",
+}
+SAMPLE_CAPTION = {"en": "Forward this back to me to check it", "hi": "जाँच के लिए इसे मुझे वापस फ़ॉरवर्ड करें"}
 FEEDBACK_THANKS = {"en": "Thank you for your feedback.", "hi": "आपकी राय के लिए धन्यवाद।"}
-# Verdicts as one letter, so a feedback button fits Telegram's 64-byte limit with the item's hash.
+
+LABELS = {
+    "en": {"agree_check": "Agree and check", "agree": "Agree", "privacy": "Privacy details",
+           "sample": "Try a sample", "help": "Help", "why": "Why?", "report": "Report",
+           "paid": "I already paid", "helpful": "Helpful", "not_helpful": "Not helpful",
+           "report_yes": "Yes, report it", "report_no": "Cancel", "other_lang": "हिन्दी"},
+    "hi": {"agree_check": "सहमत हूँ, जाँचें", "agree": "सहमत हूँ", "privacy": "गोपनीयता विवरण",
+           "sample": "नमूना आज़माएँ", "help": "मदद", "why": "क्यों?", "report": "रिपोर्ट करें",
+           "paid": "मैंने भुगतान कर दिया", "helpful": "मददगार", "not_helpful": "मददगार नहीं",
+           "report_yes": "हाँ, रिपोर्ट करें", "report_no": "रद्द करें", "other_lang": "English"},
+}
+# Verdicts as one letter, so a button's data fits Telegram's 64 bytes together with the item's hash.
 VERDICT_CODES = {"likely_fake": "L", "suspicious": "S", "cannot_verify": "C", "verified_official": "V",
                  "could_not_check": "N"}
-FEEDBACK_HASH_CHARS = 48
-NOTHING_STORED = "We hold no data for you.\n\nहमारे पास आपका कोई डेटा नहीं है।"
+KEY_CHARS = 48  # how much of the item's SHA-256 a button carries
+FIRST_ITEM_TTL_SECONDS = 1800  # how long an item sent before consent is held, in memory only
+ANSWERS_KEPT = 2000  # recent verdicts kept in memory for "Why?" and the language toggle
+
 
 MESSAGES = {
     "en": {
         "lang_set": "Replies will now be in English.",
         "deleted": "Your data has been erased. Items already in an approved evidence packet are kept, because they "
-        "are evidence in a reported case. Send YES if you want to use Trinetra again.",
+        "are evidence in a reported case. Forward anything to check it again.",
         "checking": "Checking… this takes up to a minute.",
         "media_soon": "Checking voice notes and videos is coming soon. For now, send a photo or PDF of the notice, "
         "or paste the text.",
@@ -86,11 +118,14 @@ MESSAGES = {
         "limit_hour": "You have sent many items in a short time. Please wait an hour and try again.",
         "limit_day": "You have reached today's limit. Please try again tomorrow.",
         "error": "Something went wrong while checking. Please try again.",
+        "report_ask": "Report this to the Trinetra team? Your file will be kept as evidence.",
+        "report_cancelled": "Not reported.",
+        "why_expired": "That check is no longer available. Forward the item again to see the reasons.",
     },
     "hi": {
         "lang_set": "अब से जवाब हिन्दी में आएँगे।",
         "deleted": "आपका डेटा मिटा दिया गया है। जो फ़ाइलें किसी स्वीकृत साक्ष्य पैकेट में हैं, वे रखी जाती हैं, क्योंकि वे "
-        "किसी रिपोर्ट किए गए मामले में साक्ष्य हैं। Trinetra फिर से इस्तेमाल करने के लिए YES भेजें।",
+        "किसी रिपोर्ट किए गए मामले में साक्ष्य हैं। किसी भी चीज़ की फिर से जाँच के लिए उसे फ़ॉरवर्ड करें।",
         "checking": "जाँच हो रही है… इसमें एक मिनट तक लग सकता है।",
         "media_soon": "वॉइस नोट और वीडियो की जाँच जल्द आ रही है। अभी के लिए नोटिस की फ़ोटो या PDF भेजें, या टेक्स्ट पेस्ट करें।",
         "unsupported": "हम फ़ोटो (JPG या PNG) और PDF की जाँच कर सकते हैं। कृपया नोटिस इनमें से किसी रूप में भेजें।",
@@ -104,32 +139,57 @@ MESSAGES = {
         "limit_hour": "आपने कम समय में बहुत सारे संदेश भेजे हैं। एक घंटे बाद फिर कोशिश करें।",
         "limit_day": "आज की सीमा पूरी हो गई है। कल फिर कोशिश करें।",
         "error": "जाँच के दौरान कुछ गड़बड़ हुई। कृपया फिर से कोशिश करें।",
+        "report_ask": "इसे Trinetra टीम को रिपोर्ट करें? आपकी फ़ाइल साक्ष्य के रूप में रखी जाएगी।",
+        "report_cancelled": "रिपोर्ट नहीं किया गया।",
+        "why_expired": "यह जाँच अब उपलब्ध नहीं है। कारण देखने के लिए इसे फिर से फ़ॉरवर्ड करें।",
     },
 }
 
 class Out(str):
     """A reply. Plain text to most code; a channel may also show its buttons, photo or toast.
 
-    `buttons` are (label, data) pairs; pressing one comes back as a message whose text is `data`.
-    `toast` asks the channel to acknowledge a button press quietly instead of sending a message.
+    `buttons` are (label, data) pairs, or `rows` of them for a set layout; pressing one comes back as a
+    message whose text is `data`. `toast` asks the channel to acknowledge a button press quietly.
     """
 
     buttons: tuple[tuple[str, str], ...]
+    rows: tuple[tuple[tuple[str, str], ...], ...]
     photo: bytes | None
     toast: bool
 
-    def __new__(cls, text: str, *, buttons=(), photo: bytes | None = None, toast: bool = False):
+    def __new__(cls, text: str, *, buttons=(), rows=(), photo: bytes | None = None, toast: bool = False):
         out = super().__new__(cls, text)
-        out.buttons, out.photo, out.toast = tuple(buttons), photo, toast
+        out.rows = tuple(tuple(r) for r in rows)
+        out.buttons = tuple(b for r in out.rows for b in r) if rows else tuple(buttons)
+        out.photo, out.toast = photo, toast
         return out
 
 
-def verdict_reply(text: str, verdict: Verdict, sha256: str, lang: str) -> Out:
-    """The verdict with "Helpful" / "Not helpful" buttons."""
+def verdict_rows(key: str, verdict: Verdict, lang: str) -> list[list[tuple[str, str]]]:
+    """[Why?] [Report] / [I already paid] / [Helpful] [Not helpful] [हिन्दी or English] under every verdict."""
+    t = LABELS[lang]
     code = VERDICT_CODES[verdict.value]
-    up, down = FEEDBACK_BUTTONS[lang]
-    key = sha256[:FEEDBACK_HASH_CHARS]
-    return Out(text, buttons=[(up, f"fb:u:{code}:{key}"), (down, f"fb:d:{code}:{key}")])
+    other = "en" if lang == "hi" else "hi"
+    if verdict is Verdict.COULD_NOT_CHECK:  # nothing was read, so there is nothing to report or explain
+        return [[(t["help"], "help")], [(t["helpful"], f"fb:u:{code}:{key}"), (t["not_helpful"], f"fb:d:{code}:{key}")]]
+    return [
+        [(t["why"], f"why:{key}"), (t["report"], f"rep:{key}")],
+        [(t["paid"], "paid")],
+        [(t["helpful"], f"fb:u:{code}:{key}"), (t["not_helpful"], f"fb:d:{code}:{key}"),
+         (t["other_lang"], f"lang:{other}:{key}")],
+    ]
+
+
+@dataclass(frozen=True)
+class Answer:
+    """A verdict, kept so its "Why?" and other language can be shown without checking again."""
+
+    verdict: Verdict
+    signals: list
+    kind: Kind
+    sender: str  # reply.sender_group
+    reviewed: bool
+    verify: dict  # language -> where to check at the source
 
 
 YES = {"YES", "Y", "हाँ", "हां"}
@@ -187,6 +247,10 @@ class Intake:
         self.evidence = EvidenceStore(data_dir / "evidence")
         self.media_ttl = timedelta(hours=media_ttl_hours)
         self._samples = samples or sample_paths
+        # Before consent nothing is stored: an item sent first is held here, in memory, until the user agrees.
+        self._first_items: dict[str, tuple[Inbound, float]] = {}
+        self._answers: OrderedDict[tuple[str, str], Answer] = OrderedDict()
+        self._lock = threading.Lock()
 
     def _lookups(self) -> dict:
         """Approved fakes and issued notices, both in the runtime database."""
@@ -198,23 +262,27 @@ class Intake:
     def handle(self, msg: Inbound, send: Callable[[str], None]) -> None:
         uid = self.user_hash(msg.channel, msg.chat_id)
         user = self.store.user(uid)
-        command = (msg.text or "").strip().upper().removeprefix("/")
+        text = (msg.text or "").strip()
+        command = text.upper()
+        if command.startswith("/"):
+            command = command[1:].split("@")[0].split()[0] if len(command) > 1 else ""
+        app_lang = "hi" if (msg.lang_hint or "").startswith("hi") else "en"
 
-        if user is None or user["consent_at"] is None:
-            if command in YES:
-                self.store.give_consent(uid)
-                send(Out(WELCOME, buttons=[TRY_SAMPLE]))
-            elif command == "DELETE":
-                send(NOTHING_STORED)
-            else:
-                send(CONSENT)
+        if command == "HELP":  # works before consent: it holds no data
+            lang = (user["lang"] if user else None) or app_lang
+            send(Out(HELP[lang], buttons=[(LABELS[lang]["sample"], "samples")]))
             return
 
-        lang = user["lang"] or ("hi" if (msg.lang_hint or "").startswith("hi") else "en")
+        if user is None or user["consent_at"] is None:
+            self._before_consent(uid, msg, command, app_lang, send)
+            return
+
+        lang = user["lang"] or app_lang
         say = MESSAGES[lang]
 
-        if (msg.text or "").startswith("fb:"):
-            self._feedback(msg.text, lang, send)  # a button press: it does not cancel a pending report
+        # Button presses. They never cancel a pending report.
+        if text.startswith(("fb:", "why:", "rep:", "repy:", "lang:")) or text in ("repn", "paid"):
+            self._button(uid, user, text, lang, msg, send)
             return
 
         if user["pending"]:
@@ -224,12 +292,10 @@ class Intake:
                 self._report(uid, int(user["pending"].split(":", 1)[1]), user["lang"], lang, say, send)
                 return
 
-        if command in YES or command == "START":
-            send(Out(WELCOME, buttons=[TRY_SAMPLE]))
-        elif command in ("SAMPLES", "SAMPLE", "TRY A SAMPLE"):
-            self._send_samples(send)
-        elif command in HINDI or command in ENGLISH:
-            new = "hi" if command in HINDI else "en"
+        if command in YES or command in ("START", "AGREE"):
+            self._welcome(lang, send)
+        elif command in HINDI or command in ENGLISH or command == "LANGUAGE":
+            new = "hi" if command in HINDI else "en" if command in ENGLISH else ("en" if lang == "hi" else "hi")
             self.store.set_lang(uid, new)
             send(MESSAGES[new]["lang_set"])
         elif command == "DELETE":
@@ -246,18 +312,135 @@ class Intake:
             self._ask_to_report(uid, say, send)
         elif command == "2":
             send(reply.ALREADY_PAID[lang])
+        elif command in ("SAMPLES", "SAMPLE", "TRY A SAMPLE"):
+            self._send_samples(lang, send)
+        elif command == "PRIVACY":
+            send(CONSENT[lang])
+        elif msg.callback_id:
+            # A button's data is never something to check, even an old or unknown button.
+            log.info("ignored a button press with unknown data")
         elif msg.media in ("photo", "document"):
-            self._file(uid, user["lang"], lang, msg, say, send)
+            self._file(uid, chosen_lang(user["lang"], app_lang), lang, msg, say, send)
         elif msg.media:
             send(say["media_soon"])
-        elif msg.text and msg.text.strip():
+        elif text:
             text = msg.text[:MAX_TEXT_CHARS]
             sha = pipeline.sha256_text(text)
-            reply_lang = user["lang"] or reply.detect_lang(text)
+            reply_lang = chosen_lang(user["lang"], app_lang) or reply.detect_lang(text)
             if self._allowed(uid, say, send):
                 check = partial(self._check, text, kind=Kind.TEXT, sha256=sha, lang=reply_lang, **self._lookups())
                 self._run(uid, sha, Kind.TEXT, text.encode("utf-8"), EXTENSIONS["text"], reply_lang, say, send, check,
                           channel=msg.channel)
+
+    # --- consent ----------------------------------------------------------------------
+
+    def _before_consent(self, uid: str, msg: Inbound, command: str, lang: str, send: Callable[[str], None]) -> None:
+        t = LABELS[lang]
+        if command in YES or command == "AGREE":
+            self.store.give_consent(uid)
+            first = self._take_first_item(uid)
+            if first is not None:
+                self.handle(first, send)  # check what they sent first, without asking them to send it again
+            else:
+                self._welcome(lang, send)
+            return
+        if command == "DELETE":
+            self._take_first_item(uid)
+            send(NOTHING_STORED[lang])
+            return
+        if command == "PRIVACY":
+            label = t["agree_check"] if self._has_first_item(uid) else t["agree"]
+            send(Out(CONSENT[lang], buttons=[(label, "agree")]))
+            return
+        if looks_like_an_item(msg, command):
+            with self._lock:
+                self._first_items[uid] = (msg, time.monotonic())  # memory only; files are not even downloaded
+            agree = t["agree_check"]
+        else:
+            agree = t["agree_check"] if self._has_first_item(uid) else t["agree"]
+        send(Out(CONSENT_SHORT[lang], rows=[[(agree, "agree")], [(t["privacy"], "privacy")]]))
+
+    def _take_first_item(self, uid: str) -> Inbound | None:
+        with self._lock:
+            held = self._first_items.pop(uid, None)
+        if held and time.monotonic() - held[1] <= FIRST_ITEM_TTL_SECONDS:
+            return held[0]
+        return None
+
+    def _has_first_item(self, uid: str) -> bool:
+        with self._lock:
+            held = self._first_items.get(uid)
+        return bool(held) and time.monotonic() - held[1] <= FIRST_ITEM_TTL_SECONDS
+
+    def _welcome(self, lang: str, send: Callable[[str], None]) -> None:
+        t = LABELS[lang]
+        send(Out(WELCOME[lang], buttons=[(t["sample"], "samples"), (t["help"], "help")]))
+
+    # --- buttons -------------------------------------------------------------------------
+
+    def _button(self, uid: str, user, data: str, lang: str, msg: Inbound, send: Callable[[str], None]) -> None:
+        say = MESSAGES[lang]
+        if data.startswith("fb:"):
+            self._feedback(data, lang, send)
+        elif data == "paid":
+            send(reply.ALREADY_PAID[lang])
+        elif data.startswith("why:"):
+            answer = self._answer_for(uid, data[4:])
+            if answer is None:
+                send(say["why_expired"])
+            else:
+                send(reply.why(answer.verdict, answer.signals, lang, answer.reviewed, answer.verify.get(lang)))
+        elif data.startswith("lang:"):
+            parts = data.split(":")
+            new = parts[1] if len(parts) > 1 and parts[1] in ("en", "hi") else lang
+            self.store.set_lang(uid, new)
+            answer = self._answer_for(uid, parts[2]) if len(parts) > 2 else None
+            if answer is None:
+                send(MESSAGES[new]["lang_set"])
+            else:  # show the same verdict again in the other language
+                self._send_answer(parts[2], answer, new, send)
+        elif data.startswith("rep:"):
+            self._ask_to_report(uid, say, send, key=data[4:], lang=lang)
+        elif data.startswith("repy:"):
+            item = self.store.user_item(uid, data[5:])
+            self.store.set_pending(uid, None)
+            if item is None:
+                send(say["report_nothing"])
+            else:
+                self._report(uid, item["id"], user["lang"], lang, say, send)
+        elif data == "repn":
+            self.store.set_pending(uid, None)
+            send(Out(say["report_cancelled"], toast=True))
+
+    def _answer_for(self, uid: str, key: str) -> Answer | None:
+        """A recent verdict for this user's item: from memory, or rebuilt from the hash cache."""
+        with self._lock:
+            answer = self._answers.get((uid, key))
+        if answer is not None:
+            return answer
+        item = self.store.user_item(uid, key) if key.isalnum() else None
+        if item is None:
+            return None
+        sha = item["sha256"]
+        if pipeline.is_known_fake(sha, known=self.store.is_known_fake):
+            return Answer(Verdict.LIKELY_FAKE, [], Kind(item["kind"]), "general", True, {})
+        cached = self.store.cached_result(sha, ENGINE_VERSION)
+        if cached is None:
+            return None
+        verify = {lg: reply.verify_line(cached.sender_type, cached.sender_id, lg) for lg in ("en", "hi")}
+        return Answer(cached.verdict, cached.signals, cached.kind, reply.sender_group(cached.sender_type, cached.sender_id),
+                      cached.rule_row == "R1", verify)
+
+    def _send_answer(self, key: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
+        text = reply.short(answer.verdict, answer.signals, answer.kind, lang, answer.sender, answer.reviewed)
+        send(Out(text, rows=verdict_rows(key, answer.verdict, lang)))
+
+    def _remember(self, uid: str, key: str, answer: Answer) -> None:
+        with self._lock:
+            self._answers[(uid, key)] = answer
+            self._answers.move_to_end((uid, key))
+            while len(self._answers) > ANSWERS_KEPT:
+                self._answers.popitem(last=False)
 
     def _allowed(self, uid: str, say: dict[str, str], send: Callable[[str], None]) -> bool:
         if self.store.items_since(uid, timedelta(days=1)) >= PER_DAY:
@@ -323,8 +506,7 @@ class Intake:
             reply_lang = lang or (report["lang"] if report else None) or fallback_lang
             log.info("known fake kind=%s", kind.value)
             self.store.record_check(kind.value, channel, Verdict.LIKELY_FAKE.value)
-            text = reply.build(Verdict.LIKELY_FAKE, [], kind, reply_lang, group, reviewed=True)
-            send(verdict_reply(text, Verdict.LIKELY_FAKE, sha, reply_lang))
+            self._deliver(uid, sha, Answer(Verdict.LIKELY_FAKE, [], kind, group, True, {}), reply_lang, send)
             return
 
         cached = self.store.cached_result(sha, ENGINE_VERSION)
@@ -332,11 +514,10 @@ class Intake:
             log.info("cache hit kind=%s verdict=%s", cached.kind.value, cached.verdict.value)
             group = reply.sender_group(cached.sender_type, cached.sender_id)
             reply_lang = lang or cached.lang or fallback_lang
-            verify = reply.verify_line(cached.sender_type, cached.sender_id, reply_lang)
-            text = reply.build(cached.verdict, cached.signals, cached.kind, reply_lang, group,
-                               reviewed=cached.rule_row == "R1", verify=verify)
+            verify = {lg: reply.verify_line(cached.sender_type, cached.sender_id, lg) for lg in ("en", "hi")}
             self.store.record_check(kind.value, channel, cached.verdict.value)
-            send(verdict_reply(text, cached.verdict, sha, reply_lang))
+            answer = Answer(cached.verdict, cached.signals, cached.kind, group, cached.rule_row == "R1", verify)
+            self._deliver(uid, sha, answer, reply_lang, send)
             return
 
         send(say["checking"])
@@ -349,18 +530,26 @@ class Intake:
         self.store.save_result(result)
         log.info("checked kind=%s verdict=%s row=%s", result.kind.value, result.verdict.value, result.rule_row)
         self.store.record_check(kind.value, channel, result.verdict.value)
-        send(verdict_reply(result.reply, result.verdict, sha, result.lang))
+        group = reply.sender_group(result.fields.sender_type, result.fields.sender_id)
+        answer = Answer(result.verdict, result.signals, result.kind, group, result.reviewed, result.verify)
+        self._deliver(uid, sha, answer, result.lang, send)
+
+    def _deliver(self, uid: str, sha: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
+        """The short verdict with its buttons; the answer is kept for "Why?" and the language toggle."""
+        key = sha[:KEY_CHARS]
+        self._remember(uid, key, answer)
+        self._send_answer(key, answer, lang, send)
 
     # --- samples and feedback ------------------------------------------------------
 
-    def _send_samples(self, send: Callable[[str], None]) -> None:
+    def _send_samples(self, lang: str, send: Callable[[str], None]) -> None:
         paths = [p for p in self._samples() if p.is_file()]
         if not paths:
             log.warning("no sample files found")
             return
-        send(SAMPLES_INTRO)
+        send(SAMPLES_INTRO[lang])
         for path in paths:
-            send(Out(SAMPLE_CAPTION, photo=path.read_bytes()))
+            send(Out(SAMPLE_CAPTION[lang], photo=path.read_bytes()))
 
     def _feedback(self, data: str, lang: str, send: Callable[[str], None]) -> None:
         """Store only the item's hash, the verdict and the button pressed. Nothing about who pressed it."""
@@ -373,8 +562,10 @@ class Intake:
 
     # --- reporting ------------------------------------------------------------
 
-    def _ask_to_report(self, uid: str, say: dict[str, str], send: Callable[[str], None]) -> None:
-        item = self.store.last_item(uid)
+    def _ask_to_report(self, uid: str, say: dict[str, str], send: Callable[[str], None], key: str | None = None,
+                       lang: str = "en") -> None:
+        """Typed "1" reports the latest item; the Report button reports the item it was under."""
+        item = self.store.user_item(uid, key) if key else self.store.last_item(uid)
         if item is None:
             send(say["report_nothing"])
             return
@@ -386,7 +577,11 @@ class Intake:
             send(say["already_reported"].format(case=case))
             return
         self.store.set_pending(uid, f"report:{item['id']}")
-        send(say["report_confirm"])
+        if key is None:
+            send(say["report_confirm"])  # typed flow: reply YES
+            return
+        t = LABELS[lang]
+        send(Out(say["report_ask"], rows=[[(t["report_yes"], f"repy:{key}"), (t["report_no"], "repn")]]))
 
     def _report(self, uid: str, item_id: int, pref: str | None, lang: str, say: dict[str, str], send: Callable[[str], None]) -> None:
         item = self.store.item(item_id)
@@ -422,3 +617,25 @@ class Intake:
 def report_sender(report) -> tuple[str | None, str | None]:
     fields = json.loads(report["fields_json"])
     return fields.get("sender_type"), fields.get("sender_id")
+
+
+def looks_like_an_item(msg: Inbound, command: str) -> bool:
+    """Something to check, not a greeting or a command: media, or text with a few words, a number or a link."""
+    if msg.callback_id:
+        return False  # a button press, e.g. an old button tapped after DELETE, is never an item
+    if msg.media:
+        return True
+    text = (msg.text or "").strip()
+    if not text or text.startswith("/") or command in YES | HINDI | ENGLISH | {"START", "AGREE", "PRIVACY", "DELETE"}:
+        return False
+    return len(text.split()) >= 4 or bool(re.search(r"\d{3,}|@|https?://|www\.", text))
+
+
+def chosen_lang(user_lang: str | None, app_lang: str) -> str | None:
+    """The verdict's language, before looking at the message itself.
+
+    1. The user's explicit choice (HINDI, ENGLISH, /language or the language button).
+    2. Hindi if the phone's Telegram app is set to Hindi.
+    3. Otherwise None: the reply follows the message's own language.
+    """
+    return user_lang or ("hi" if app_lang == "hi" else None)

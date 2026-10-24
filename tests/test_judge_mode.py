@@ -17,7 +17,7 @@ from app import main, samples
 from app.channels.dispatch import Dispatcher
 from app.channels.telegram import TelegramAPI, TelegramSender, parse_update
 from app.channels.telegram_poll import run_once
-from app.intake import CONSENT, SAMPLE_CAPTION, TRY_SAMPLE, WELCOME, Inbound, Intake, Out
+from app.intake import CONSENT, CONSENT_SHORT, SAMPLE_CAPTION, WELCOME, Inbound, Intake, Out
 from app.store import Store
 from tests.test_testset import TEST_SET
 
@@ -53,13 +53,15 @@ def say(intake, text=None, chat="1", **kw) -> list:
 
 
 def test_consent_says_it_is_a_student_prototype_in_both_languages():
-    assert "Trinetra is a student prototype. It does not replace official advice. If in doubt, call 1930." in CONSENT
-    assert "Trinetra एक छात्र प्रोटोटाइप है। यह आधिकारिक सलाह का विकल्प नहीं है। संदेह हो तो 1930 पर कॉल करें।" in CONSENT
+    for text in (CONSENT["en"], CONSENT_SHORT["en"]):
+        assert "Trinetra is a student prototype. It does not replace official advice. If in doubt, call 1930." in text
+    for text in (CONSENT["hi"], CONSENT_SHORT["hi"]):
+        assert "Trinetra एक छात्र प्रोटोटाइप है। यह आधिकारिक सलाह का विकल्प नहीं है। संदेह हो तो 1930 पर कॉल करें।" in text
 
 
 def test_welcome_offers_a_sample(intake):
     [welcome] = say(intake, "YES")
-    assert welcome == WELCOME and welcome.buttons == (TRY_SAMPLE,)
+    assert welcome == WELCOME["en"] and ("Try a sample", "samples") in welcome.buttons
 
 
 @pytest.mark.parametrize("command", ["samples", "/samples"])
@@ -68,7 +70,7 @@ def test_samples_are_sent_as_photos_with_the_caption(intake, sample_files, comma
     out = say(intake, command)
     photos = [o for o in out if isinstance(o, Out) and o.photo]
     assert len(photos) == 3
-    assert all(str(p) == SAMPLE_CAPTION and "Forward this back to me to check it" in p for p in photos)
+    assert all(str(p) == SAMPLE_CAPTION["en"] == "Forward this back to me to check it" for p in photos)
     assert [p.photo for p in photos] == [f.read_bytes() for f in sample_files]
 
 
@@ -79,7 +81,7 @@ def test_missing_sample_files_are_skipped(store, tmp_path):
 
 
 def test_samples_need_consent(intake):
-    assert say(intake, "/samples") == [CONSENT]
+    assert say(intake, "/samples") == [CONSENT_SHORT["en"]]
 
 
 def test_sample_settings_come_from_env_paths(monkeypatch, tmp_path):
@@ -96,7 +98,7 @@ def test_sample_settings_come_from_env_paths(monkeypatch, tmp_path):
 def test_every_verdict_has_feedback_buttons(intake):
     say(intake, "YES")
     verdict = say(intake, TEXTS["T1"])[-1]
-    assert [label for label, _ in verdict.buttons] == ["👍 Helpful", "👎 Not helpful"]
+    assert [label for label, data in verdict.buttons if data.startswith("fb:")] == ["Helpful", "Not helpful"]
     assert all(len(data.encode()) <= 64 for _, data in verdict.buttons)
     cached = say(intake, TEXTS["T1"])[-1]  # answers from the cache get them too
     assert cached.buttons == verdict.buttons
@@ -104,7 +106,7 @@ def test_every_verdict_has_feedback_buttons(intake):
 
 def test_feedback_stores_only_hash_verdict_and_vote(intake, store):
     say(intake, "YES")
-    _, data = say(intake, TEXTS["T1"])[-1].buttons[1]
+    data = next(d for _, d in say(intake, TEXTS["T1"])[-1].buttons if d.startswith("fb:d:"))
     [thanks] = say(intake, data, callback_id="cb1", message_id=7)
     assert thanks.toast and str(thanks) == "Thank you for your feedback."
     with store._db() as db:
@@ -127,7 +129,7 @@ def test_feedback_does_not_cancel_a_pending_report(intake, store):
     say(intake, "YES")
     verdict = say(intake, TEXTS["T1"])[-1]
     say(intake, "1")
-    say(intake, verdict.buttons[0][1])
+    say(intake, next(d for _, d in verdict.buttons if d.startswith("fb:u:")))
     assert say(intake, "YES")[0].startswith("Reported.")
 
 
@@ -254,7 +256,7 @@ def test_stats_show_counts_and_no_content(reviewer, intake, store):
     say(intake, "YES")
     say(intake, TEXTS["T1"])
     voted = say(intake, TEXTS["T2"])[-1]
-    say(intake, voted.buttons[0][1])
+    say(intake, next(d for _, d in voted.buttons if d.startswith("fb:u:")))
     say(intake, "YES", chat="2")
     say(intake, TEXTS["T4"], chat="2")
     s = store.stats()

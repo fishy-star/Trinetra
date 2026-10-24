@@ -82,7 +82,7 @@ def test_anything_but_yes_cancels_the_report(intake):
     u.say("1")
     assert u.say("no thanks")[0] != EN["report_done"].format(case=1)
     assert intake.store.cases() == []
-    assert u.say("YES")[0].startswith("Thank you.")  # plain YES is no longer a report confirmation
+    assert u.say("YES")[0].startswith("You're all set.")  # plain YES is no longer a report confirmation
 
 
 def test_nothing_to_report(intake):
@@ -432,7 +432,7 @@ def test_forwarding_an_approved_fake_again_is_answered_at_once_as_reviewed(tmp_p
     assert len(out) == 1  # no "Checking…"
     assert out[0].startswith("Likely fake. Do not pay.")
     assert "already confirmed as fake" in out[0]
-    assert out[0].endswith("Reviewed by the Trinetra team.")
+    assert out[0].endswith("✔ Reviewed by the Trinetra team")
     assert "No police, CBI, ED or court" in out[0]  # the tailored line, from the reported case
     assert calls == [1]  # only the first check ran OCR
 
@@ -444,7 +444,7 @@ def test_same_payee_after_approval_is_r1_and_reviewed(intake):
     intake.store.add_known_fakes(1, "asha", [], ["navdeep.kyc@ybl"])
     out = User(intake, "2").say("Your account is blocked. Pay Rs 99 to NAVDEEP.KYC@ybl.")
     assert out[1].startswith("Likely fake")
-    assert out[1].endswith("Reviewed by the Trinetra team.")
+    assert out[1].endswith("✔ Reviewed by the Trinetra team")
 
 
 def registry_seed() -> Path:

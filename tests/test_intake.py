@@ -5,7 +5,7 @@ import pytest
 
 from app import intake as intake_mod
 from app import pipeline
-from app.intake import CONSENT, MESSAGES, NOTHING_STORED, WELCOME, Inbound, Intake
+from app.intake import CONSENT, CONSENT_SHORT, MESSAGES, NOTHING_STORED, WELCOME, Inbound, Intake
 from app.reply import ALREADY_PAID
 from app.store import Store
 
@@ -50,18 +50,20 @@ def chat(intake):
 
 def test_first_message_gets_consent_and_is_not_checked(intake, calls):
     c = Chat(intake)
-    assert c.say(TEXTS["T1"]) == [CONSENT]
+    assert c.say(TEXTS["T1"]) == [CONSENT_SHORT["en"]]
     assert calls == []
     assert intake.store.user(intake.user_hash("telegram", "1001")) is None
 
 
 def test_consent_notice_is_in_both_languages():
-    assert "Reply YES to continue" in CONSENT and "जारी रखने के लिए YES भेजें" in CONSENT
+    # One language per message: each version stands alone.
+    assert "Reply YES" in CONSENT["en"] and "जारी रखने के लिए YES भेजें" in CONSENT["hi"]
+    assert not any("\u0900" <= ch <= "\u097f" for ch in CONSENT["en"] + CONSENT_SHORT["en"])
 
 
 def test_yes_gives_consent(intake):
     c = Chat(intake)
-    assert c.say("yes") == [WELCOME]
+    assert c.say("yes") == [WELCOME["en"]]
     assert intake.store.user(intake.user_hash("telegram", "1001"))["consent_at"]
 
 
@@ -100,7 +102,7 @@ def test_delete_erases_and_asks_for_consent_again(intake, chat, calls):
     assert intake.store.user(uid) is None
     assert intake.store.items_since(uid, intake_mod.timedelta(days=1)) == 0
     assert intake.store.cached_result(pipeline.sha256_text(TEXTS["T1"]), intake_mod.ENGINE_VERSION) is None
-    assert chat.say(TEXTS["T1"]) == [CONSENT]
+    assert chat.say(TEXTS["T1"]) == [CONSENT_SHORT["en"]]
 
 
 def test_delete_keeps_cache_entries_other_users_still_need(intake, chat):
@@ -113,7 +115,7 @@ def test_delete_keeps_cache_entries_other_users_still_need(intake, chat):
 
 
 def test_delete_before_consent(intake):
-    assert Chat(intake).say("DELETE") == [NOTHING_STORED]
+    assert Chat(intake).say("DELETE") == [NOTHING_STORED["en"]]
 
 
 def test_voice_and_video_are_coming_soon_in_users_language(chat):

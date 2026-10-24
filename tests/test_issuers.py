@@ -250,7 +250,7 @@ def test_bot_says_verified_for_an_issued_notice(store, court, tmp_path):
     out: list[str] = []
     for text in ("YES", forwarded):
         intake.handle(Inbound("telegram", "1", text), out.append)
-    assert out[-1].startswith("Verified: this matches an official source.")
+    assert out[-1].startswith("Verified official.")
     assert "Pune District Court (demo)" in out[-1]
 
 

@@ -30,7 +30,7 @@ from app.portal import router as portal_router
 from app.evidence import MediaDir
 from app.extract import ocr
 from app.auth import client_of
-from app.intake import FEEDBACK_BUTTONS, MAX_BYTES, MESSAGES, VERDICT_CODES, Intake
+from app.intake import MAX_BYTES, MESSAGES, VERDICT_CODES, Intake
 from app.jobs import start_purger
 from app.store import Store
 
@@ -81,13 +81,17 @@ async def telegram_webhook(
     msg = parse_update(await request.json(), deps.api)
     if msg is not None:
         # Answer Telegram at once; the "Checking…" message and the verdict are sent from the background task.
-        background.add_task(deps.intake.handle, msg, TelegramSender(deps.api, msg))
+        sender = TelegramSender(deps.api, msg)
+        if sender.acks_on_arrival():
+            sender.ack()
+        background.add_task(deps.intake.handle, msg, sender)
     return {"ok": True}
 
 
 MAX_TEXT_CHARS = 5000
 
 TELEGRAM_BOT = "Trinetra_check_bot"
+FEEDBACK_BUTTONS = {"en": ("👍 Helpful", "👎 Not helpful"), "hi": ("👍 मददगार", "👎 मददगार नहीं")}
 PUBLIC_NAV = [("/", "Check"), ("/try", "Try the bot")]
 
 

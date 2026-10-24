@@ -143,7 +143,7 @@ def test_nothing_is_downloaded_before_consent(tmp_path):
     fetched = []
     out: list[str] = []
     fresh.handle(Inbound("telegram", "5", media="photo", fetch=lambda: fetched.append(1) or F1_PNG), out.append)
-    assert out == [intake_mod.CONSENT] and fetched == []
+    assert out == [intake_mod.CONSENT_SHORT["en"]] and fetched == []
 
 
 def test_files_count_toward_rate_limit(files, monkeypatch):

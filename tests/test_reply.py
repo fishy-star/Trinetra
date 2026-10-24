@@ -125,4 +125,7 @@ def test_cached_reply_keeps_the_route(tmp_path):
     text = "INCOME TAX DEPARTMENT\nA mismatch was found in your return. Respond within 30 days."
     for t in ("YES", text, text):
         intake.handle(Inbound("telegram", "1", t), out.append)
-    assert out[3] == out[2] and DIN_EN in out[3]
+    assert out[3] == out[2] and DIN_EN not in out[3]  # the short reply keeps the verifier link behind "Why?"
+    why = next(data for _, data in out[3].buttons if data.startswith("why:"))
+    intake.handle(Inbound("telegram", "1", why), out.append)
+    assert DIN_EN in out[-1]

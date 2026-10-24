@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.channels.telegram import TelegramAPI, TelegramError, parse_update
 from app.channels.telegram_poll import run_once
-from app.intake import CONSENT, Intake
+from app.intake import CONSENT_SHORT, Intake
 from app.store import Store
 
 TOKEN = "123456:SECRET-TOKEN-never-log-me"
@@ -91,7 +91,8 @@ def test_poll_once_answers_and_advances_offset(tmp_path):
     fake = FakeTelegram(updates=[update(7, text="hello"), update(8, chat_type="group", text="x")])
     intake = Intake(Store(tmp_path / "t.db"), salt="s")
     assert run_once(api_with(fake), intake, None, timeout=0) == 9
-    assert fake.sent == [{"chat_id": "42", "text": CONSENT}]
+    assert [m["text"] for m in fake.sent] == [CONSENT_SHORT["en"]]
+    assert fake.sent[0]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "agree"
 
 
 @pytest.fixture
@@ -114,7 +115,8 @@ def test_webhook_handles_message(webhook):
     client, fake = webhook
     resp = client.post("/telegram/webhook", json=update(text="hi"), headers={"X-Telegram-Bot-Api-Secret-Token": "hook-secret"})
     assert resp.status_code == 200
-    assert fake.sent == [{"chat_id": "42", "text": CONSENT}]
+    assert [m["text"] for m in fake.sent] == [CONSENT_SHORT["en"]]
+    assert fake.sent[0]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "agree"
 
 
 def test_webhook_is_off_without_configuration():

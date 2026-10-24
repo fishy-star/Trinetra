@@ -121,9 +121,10 @@ def analyse_text(
     group = reply.sender_group(fields.sender_type, fields.sender_id)
     if issued.unclear_code:
         url = issuer_codes.verify_url(settings.public_base_url, issued.unclear_code)
-        verify = UNCLEAR_CODE[lang].format(issuer=issued.issuer_name, url=url)
+        verify_lines = {lg: UNCLEAR_CODE[lg].format(issuer=issued.issuer_name, url=url) for lg in ("en", "hi")}
     else:
-        verify = reply.verify_line(fields.sender_type, fields.sender_id, lang)
+        verify_lines = {lg: reply.verify_line(fields.sender_type, fields.sender_id, lg) for lg in ("en", "hi")}
+    verify = verify_lines[lang]
     result = Result(
         kind=kind,
         sha256=sha256,
@@ -136,5 +137,6 @@ def analyse_text(
         engine_version=ENGINE_VERSION,
         needs_review=verdict.needs_review(signals, issued.proven),
         reviewed=row == "R1",
+        verify=verify_lines,
     )
     return result, fields

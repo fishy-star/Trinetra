@@ -299,6 +299,16 @@ class Store:
                 "SELECT * FROM items WHERE user_hash = ? ORDER BY id DESC LIMIT 1", (user_hash,)
             ).fetchone()
 
+    def user_item(self, user_hash: str, sha_prefix: str) -> sqlite3.Row | None:
+        """The user's latest item whose hash starts with `sha_prefix` (what a button carries)."""
+        if not sha_prefix or not sha_prefix.isalnum():
+            return None
+        with self._db() as db:
+            return db.execute(
+                "SELECT * FROM items WHERE user_hash = ? AND sha256 LIKE ? ORDER BY id DESC LIMIT 1",
+                (user_hash, sha_prefix.lower() + "%"),
+            ).fetchone()
+
     def item(self, item_id: int) -> sqlite3.Row | None:
         with self._db() as db:
             return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()

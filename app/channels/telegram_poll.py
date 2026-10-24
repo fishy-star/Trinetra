@@ -15,7 +15,14 @@ import time
 from functools import partial
 
 from app.channels.dispatch import Dispatcher
-from app.channels.telegram import TelegramAPI, TelegramError, TelegramSender, parse_update
+from app.channels.telegram import (
+    POLL_TIMEOUT,
+    TelegramAPI,
+    TelegramError,
+    TelegramSender,
+    parse_update,
+    register_commands,
+)
 from app.config import settings
 from app.intake import Intake
 from app.jobs import start_purger
@@ -25,7 +32,8 @@ log = logging.getLogger("trinetra.telegram_poll")
 
 
 def run_once(
-    api: TelegramAPI, intake: Intake, offset: int | None, timeout: int = 30, dispatcher: Dispatcher | None = None
+    api: TelegramAPI, intake: Intake, offset: int | None, timeout: int = POLL_TIMEOUT,
+    dispatcher: Dispatcher | None = None,
 ) -> int | None:
     """Fetch one batch of updates, hand each to the dispatcher (or handle it here), and return the next offset."""
     for update in api.get_updates(offset, timeout=timeout):
@@ -33,7 +41,10 @@ def run_once(
         msg = parse_update(update, api)
         if msg is None:
             continue
-        job = partial(_handle, intake, msg, TelegramSender(api, msg), update["update_id"])
+        sender = TelegramSender(api, msg)
+        if sender.acks_on_arrival():
+            sender.ack()  # at once, before the press waits behind this chat's other work or runs a check
+        job = partial(_handle, intake, msg, sender, update["update_id"])
         if dispatcher is None:
             job()
         else:
@@ -60,6 +71,10 @@ def main() -> None:
     intake = Intake(store, settings.user_id_salt, data_dir=settings.data_dir, media_ttl_hours=settings.media_ttl_hours)
     stop = threading.Event()
     start_purger(store, intake.media, stop)
+    try:
+        register_commands(api)
+    except TelegramError as e:
+        log.warning("could not register the command menu: %s", e)
     dispatcher = Dispatcher()
     log.info("polling Telegram with %d workers; press Ctrl+C to stop", dispatcher.workers)
     offset = None
