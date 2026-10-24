@@ -205,7 +205,7 @@ SHORT_ACTION_VOICE = {
 }
 FOOTER_SHORT = {
     False: {"en": "Automated check · not yet reviewed by a person", "hi": "स्वचालित जाँच · अभी किसी व्यक्ति ने समीक्षा नहीं की"},
-    True: {"en": "✔ Reviewed by the Trinetra team", "hi": "✔ Trinetra टीम द्वारा समीक्षा की गई"},
+    True: {"en": "Reviewed by the Trinetra team", "hi": "Trinetra टीम द्वारा समीक्षा की गई"},
 }
 WHY_HEADING = {"en": "Why we said this:", "hi": "हमने ऐसा क्यों कहा:"}
 _ORDER = {check: i for i, check in enumerate(CHECK_ORDER)}

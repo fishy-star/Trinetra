@@ -485,7 +485,7 @@ def audit_page(user: str = Depends(require_user), c: Console = Depends(console_d
 
 
 KIND_LABELS = {"notice": "Notices (photos and PDFs)", "text": "Text messages", "voice": "Voice notes"}
-VOTE_LABELS = {"helpful": "👍 Helpful", "not_helpful": "👎 Not helpful"}
+VOTE_LABELS = {"helpful": "Helpful", "not_helpful": "Not helpful"}
 
 
 def _count_rows(counts: dict, labels: dict | None = None, badge: bool = False) -> str:
@@ -524,8 +524,8 @@ def stats_page(user: str = Depends(require_user), c: Console = Depends(console_d
 <div class="kpis">
   <div class="kpi attn"><span class="n">{s["users"]}</span><span class="l">Unique users (consented)</span></div>
   <div class="kpi"><span class="n">{s["checks"]}</span><span class="l">Checks answered</span></div>
-  <div class="kpi"><span class="n">{helpful}</span><span class="l">👍 Helpful</span></div>
-  <div class="kpi"><span class="n">{unhelpful}</span><span class="l">👎 Not helpful</span></div>
+  <div class="kpi"><span class="n">{helpful}</span><span class="l">Helpful</span></div>
+  <div class="kpi"><span class="n">{unhelpful}</span><span class="l">Not helpful</span></div>
   <div class="kpi"><span class="n">{f"{round(100 * helpful / votes)}%" if votes else "—"}</span><span class="l">Found it helpful</span></div>
 </div>
 <section class="card"><h2>Checks per hour, last 24 hours (UTC)</h2><div class="hours">{bars}</div></section>
@@ -535,7 +535,7 @@ def stats_page(user: str = Depends(require_user), c: Console = Depends(console_d
   <section class="card"><h2>Verdicts</h2>{_count_rows(s["by_verdict"], badge=True)}</section>
 </div>
 <section class="card"><h2>Feedback by verdict</h2>
-<div class="table-wrap"><table class="data"><thead><tr><th>Verdict</th><th>👍 Helpful</th><th>👎 Not helpful</th></tr></thead>
+<div class="table-wrap"><table class="data"><thead><tr><th>Verdict</th><th>Helpful</th><th>Not helpful</th></tr></thead>
 <tbody>{fb_rows or '<tr><td colspan="3" class="empty">No feedback yet.</td></tr>'}</tbody></table></div></section>
 """
     return page("Usage", body, user)

@@ -91,7 +91,7 @@ async def telegram_webhook(
 MAX_TEXT_CHARS = 5000
 
 TELEGRAM_BOT = "Trinetra_check_bot"
-FEEDBACK_BUTTONS = {"en": ("👍 Helpful", "👎 Not helpful"), "hi": ("👍 मददगार", "👎 मददगार नहीं")}
+FEEDBACK_BUTTONS = {"en": ("Helpful", "Not helpful"), "hi": ("मददगार", "मददगार नहीं")}
 PUBLIC_NAV = [("/", "Check"), ("/try", "Try the bot")]
 
 
