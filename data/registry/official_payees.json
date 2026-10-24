@@ -1,0 +1,4 @@
+{
+  "_comment": "Exceptions: UPI IDs or account numbers confirmed to belong to a government body. A payment demand to one of these does not fire source.payee_identity_mismatch or ask.payment_to_non_official_payee. Lower-case UPI IDs; account numbers as digits only.",
+  "payees": []
+}

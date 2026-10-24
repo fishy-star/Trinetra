@@ -48,8 +48,10 @@ ALREADY_PAID = {
 }
 # Every reply names its evidence. When no check fired, say so without implying safety.
 NO_SIGNALS = {
-    "en": "We found no warning signs, and we could not confirm who sent it.",
-    "hi": "हमें कोई चेतावनी संकेत नहीं मिला, और हम भेजने वाले की पुष्टि नहीं कर सके।",
+    "en": "We found no warning signs, but we could not confirm who sent it. If it asks for money, confirm "
+    "through an official number first.",
+    "hi": "हमें कोई चेतावनी संकेत नहीं मिला, लेकिन हम यह पुष्टि नहीं कर सके कि इसे किसने भेजा। अगर इसमें पैसे माँगे "
+    "गए हैं, तो पहले किसी आधिकारिक नंबर से पुष्टि करें।",
 }
 
 CHECK_ORDER = ("source", "ask", "media")

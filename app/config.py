@@ -14,6 +14,7 @@ REGISTRY_DIR = ROOT / "data" / "registry"
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str | None
+    telegram_webhook_secret: str | None
     whatsapp_token: str | None
     whatsapp_phone_id: str | None
     whatsapp_verify_token: str | None
@@ -26,12 +27,18 @@ class Settings:
     reviewers: tuple[str, ...]
     data_dir: Path
     media_ttl_hours: int
+    user_id_salt: str | None
+
+    def __repr__(self) -> str:
+        # Never print secrets, even by accident.
+        return "Settings(...)"
 
     @classmethod
     def from_env(cls) -> Settings:
         env = os.environ.get
         return cls(
             telegram_bot_token=env("TELEGRAM_BOT_TOKEN"),
+            telegram_webhook_secret=env("TELEGRAM_WEBHOOK_SECRET"),
             whatsapp_token=env("WHATSAPP_TOKEN"),
             whatsapp_phone_id=env("WHATSAPP_PHONE_ID"),
             whatsapp_verify_token=env("WHATSAPP_VERIFY_TOKEN"),
@@ -42,8 +49,9 @@ class Settings:
             stt_mode=env("STT_MODE", "off"),
             audio_model=env("AUDIO_MODEL", "off"),
             reviewers=tuple(r.strip() for r in env("REVIEWERS", "").split(",") if r.strip()),
-            data_dir=Path(env("DATA_DIR", str(ROOT / "data" / "runtime"))),
+            data_dir=ROOT / env("DATA_DIR", "data/runtime"),  # a relative path is taken from the repo root
             media_ttl_hours=int(env("MEDIA_TTL_HOURS", "24")),
+            user_id_salt=env("USER_ID_SALT"),
         )
 
 

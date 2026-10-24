@@ -84,6 +84,15 @@ def test_prompt_injection_does_not_change_verdict():
     assert check_text(injected, kind=Kind.NOTICE).verdict is Verdict.LIKELY_FAKE
 
 
+def test_beware_does_not_hide_a_threat_that_comes_with_a_payment_demand():
+    forged = (
+        "CENTRAL BUREAU OF INVESTIGATION\n"
+        "Beware: a warrant has been issued against you. "
+        "Pay Rs 50,000 to cbi.warrant.clear@ybl to have it withdrawn."
+    )
+    assert check_text(forged, kind=Kind.NOTICE).verdict is Verdict.LIKELY_FAKE
+
+
 def test_synthetic_footer_is_stripped():
     t4 = texts()["T4"]
     with_footer = t4 + "\nSYNTHETIC TEST SAMPLE · Trinetra team · not a real document · T4"

@@ -77,6 +77,7 @@ def extract(text: str) -> Fields:
     sender, sender_type, named = _sender(text)
 
     payee_or_amount = bool(upi_ids or accounts or amounts)
+    demands_payment = payee_or_amount and bool(lexicon.payment_sentences(text))
     return Fields(
         claimed_sender=sender,
         sender_type=sender_type,
@@ -88,8 +89,8 @@ def extract(text: str) -> Fields:
         urls=urls,
         emails=emails,
         phones=phones,
-        demands_payment=payee_or_amount and bool(lexicon.payment_sentences(text)),
-        threatens_user=lexicon.threatens_arrest(text),
+        demands_payment=demands_payment,
+        threatens_user=lexicon.threatens_arrest(text, demands_payment or bool(upi_ids or accounts)),
         asks_secrecy=lexicon.asks_secrecy(text),
         deadline_hours=lexicon.deadline_hours(text),
     )

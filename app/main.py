@@ -1,16 +1,57 @@
-"""FastAPI app: web upload page (more routes arrive with later milestones)."""
+"""FastAPI app: web upload page and the Telegram webhook (more routes arrive with later milestones)."""
 
 from __future__ import annotations
 
+import hmac
+from dataclasses import dataclass
+from functools import lru_cache, partial
 from html import escape
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app import pipeline
+from app.channels.telegram import TelegramAPI, parse_update
+from app.config import settings
+from app.intake import Intake
+from app.store import Store
 
 app = FastAPI(title="Trinetra")
+
+
+@dataclass(frozen=True)
+class TelegramDeps:
+    api: TelegramAPI
+    intake: Intake
+    secret: str
+
+
+@lru_cache
+def telegram_deps() -> TelegramDeps | None:
+    """None until a token, a webhook secret and a salt are all set; the webhook is then switched off."""
+    if not (settings.telegram_bot_token and settings.telegram_webhook_secret and settings.user_id_salt):
+        return None
+    store = Store(settings.data_dir / "trinetra.db")
+    return TelegramDeps(TelegramAPI(settings.telegram_bot_token), Intake(store, settings.user_id_salt), settings.telegram_webhook_secret)
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(
+    request: Request,
+    background: BackgroundTasks,
+    deps: TelegramDeps | None = Depends(telegram_deps),
+    x_telegram_bot_api_secret_token: str | None = Header(None),
+) -> dict[str, bool]:
+    if deps is None:
+        raise HTTPException(404)
+    if not hmac.compare_digest(x_telegram_bot_api_secret_token or "", deps.secret):
+        raise HTTPException(403)
+    msg = parse_update(await request.json())
+    if msg is not None:
+        # Answer Telegram at once; the "Checking…" message and the verdict are sent from the background task.
+        background.add_task(deps.intake.handle, msg, partial(deps.api.send_message, msg.chat_id))
+    return {"ok": True}
 
 MAX_TEXT_CHARS = 5000
 

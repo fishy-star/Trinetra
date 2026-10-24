@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from app.extract.fields import is_mobile
 from app.models import Fields, PointsTo, Signal, Strength
-from app.registry import GOVERNMENT_TYPES, OFFICIAL_TYPES, is_official_domain
+from app.registry import GOVERNMENT_TYPES, OFFICIAL_TYPES, is_official_domain, is_official_payee
 
 FREE_EMAIL = frozenset(
     {
@@ -24,9 +24,11 @@ def _domain(url: str) -> str:
 
 
 def payee_mismatch(fields: Fields) -> Signal | None:
-    if fields.sender_type not in GOVERNMENT_TYPES or not fields.demands_payment or not fields.payees:
+    if fields.sender_type not in GOVERNMENT_TYPES or not fields.demands_payment:
         return None
-    # No government payee is on our list, so any UPI ID or account named by a government body is non-government.
+    # Any UPI ID or account named by a government body is non-government, unless it is on official_payees.json.
+    if not any(not is_official_payee(p) for p in fields.payees):
+        return None
     return Signal(
         "source",
         "source.payee_identity_mismatch",

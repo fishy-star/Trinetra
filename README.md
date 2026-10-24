@@ -76,6 +76,15 @@ uvicorn app.main:app --reload
 
 Open `http://localhost:8000` for the web upload page, and `http://localhost:8000/console` for the review console.
 
+**Telegram bot (local).** Set `TELEGRAM_BOT_TOKEN` and `USER_ID_SALT` in `.env`, then run the long-polling bot in its own terminal:
+
+```bash
+set -a; source .env; set +a
+python -m app.channels.telegram_poll
+```
+
+Polling and a webhook cannot run at the same time. The deployed service uses the webhook at `/telegram/webhook` instead, which is off until `TELEGRAM_WEBHOOK_SECRET` is set.
+
 **Offline mode.** With `LLM_MODE=off STT_MODE=off AUDIO_MODEL=off`, everything runs without AWS or internet. That is also how the tests run.
 
 ```bash

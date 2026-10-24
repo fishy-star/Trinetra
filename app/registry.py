@@ -48,6 +48,16 @@ def agencies(registry_dir: Path = REGISTRY_DIR) -> tuple[Agency, ...]:
     )
 
 
+@lru_cache
+def official_payees(registry_dir: Path = REGISTRY_DIR) -> frozenset[str]:
+    raw = json.loads((registry_dir / "official_payees.json").read_text(encoding="utf-8"))["payees"]
+    return frozenset(p.strip().lower() for p in raw)
+
+
+def is_official_payee(payee: str) -> bool:
+    return payee.strip().lower() in official_payees()
+
+
 def known_fakes(registry_dir: Path = REGISTRY_DIR) -> dict[str, list[str]]:
     # Not cached: the review console adds to this file while the service runs.
     return json.loads((registry_dir / "known_fakes.json").read_text(encoding="utf-8"))

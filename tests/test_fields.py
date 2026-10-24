@@ -40,6 +40,7 @@ def test_otp_warning_is_not_secrecy():
 
 def test_arrest_warning_is_not_a_threat():
     assert not extract("'डिजिटल अरेस्ट' से सावधान").threatens_user
+    assert extract("Beware: a warrant has been issued against you. Pay Rs 5,000 to clear.ok@ybl.").threatens_user
     assert not extract("No police officer arrests anyone on a video call.").threatens_user
     assert extract("A warrant for your arrest has been issued.").threatens_user
 

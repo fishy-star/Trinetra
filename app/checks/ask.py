@@ -6,6 +6,7 @@ import re
 
 from app.checks import lexicon
 from app.models import Fields, PointsTo, Signal, Strength
+from app.registry import is_official_payee
 
 # SEBI validated handles: name@valid or name@valid<bank>.
 VALID_HANDLE = re.compile(r"@valid[a-z]*$", re.IGNORECASE)
@@ -16,8 +17,8 @@ def _weak(code: str, en: str, hi: str) -> Signal:
 
 
 def _payee_official(fields: Fields) -> bool:
-    # Bank accounts and unvalidated UPI IDs are never official payees. With no payee named, nothing is proven.
-    return bool(fields.upi_ids) and not fields.accounts and all(VALID_HANDLE.search(u) for u in fields.upi_ids)
+    # Official means a SEBI @valid handle or an entry in official_payees.json. With no payee named, nothing is proven.
+    return bool(fields.payees) and all(VALID_HANDLE.search(p) or is_official_payee(p) for p in fields.payees)
 
 
 def run(fields: Fields, text: str) -> list[Signal]:

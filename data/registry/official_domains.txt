@@ -7,3 +7,5 @@ bank.in
 fin.in
 rbi.org.in
 npci.org.in
+
+# Partner banks' legacy domains (before their move to bank.in). One per line, e.g. examplebank.com

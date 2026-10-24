@@ -110,9 +110,17 @@ def asks_secrecy(text: str) -> bool:
     return any(not SECRECY_EXCLUDE.search(m.group(0)) for m in SECRECY.finditer(text))
 
 
-def threatens_arrest(text: str) -> bool:
-    # "Beware of digital arrest" warns about the scam; it does not threaten the reader.
-    return any(ARREST.search(s) and not NEGATION.search(s) and not AWARENESS.search(s) for s in sentences(text))
+def threatens_arrest(text: str, asks_for_money: bool) -> bool:
+    """`asks_for_money`: the item demands payment or names a payee.
+
+    "Beware of digital arrest" in an awareness notice warns about the scam, so awareness words
+    cancel an arrest mention, but only when the item asks for no money. A forged notice
+    that says "Beware: a warrant has been issued" and demands payment is still a threat.
+    """
+    return any(
+        ARREST.search(s) and not NEGATION.search(s) and (asks_for_money or not AWARENESS.search(s))
+        for s in sentences(text)
+    )
 
 
 def promises_refund(text: str) -> bool:
