@@ -69,6 +69,12 @@ ALREADY_PAID = {
     "hi": "अभी 1930 पर कॉल करें और अपने बैंक को बताएँ। जल्दी रिपोर्ट करने पर पैसा रोका जा सकता है। "
     "आप cybercrime.gov.in पर भी शिकायत कर सकते हैं।",
 }
+# R0 for a text message: nothing to read because it is too short, not because a file was unreadable.
+TOO_SHORT = {
+    "en": ("This message is too short to check.", "Forward the full message, or a screenshot of it."),
+    "hi": ("यह संदेश जाँच के लिए बहुत छोटा है।", "पूरा संदेश या उसका स्क्रीनशॉट फ़ॉरवर्ड करें।"),
+}
+
 # Every reply names its evidence. When no check fired, say so without implying safety.
 NO_SIGNALS = {
     "en": "We found no warning signs, but we could not confirm who sent it. If it asks for money, confirm "
@@ -131,7 +137,10 @@ def build(
     `reviewed` is set for R1, a match to a reviewer-confirmed fake. `verify` is a line telling the
     person where to check the notice at its source; it is shown only when we could not settle it.
     """
-    parts = [VERDICT_LINE[lang][verdict]]
+    if verdict is Verdict.COULD_NOT_CHECK and kind is Kind.TEXT:
+        parts = [" ".join(TOO_SHORT[lang])]
+    else:
+        parts = [VERDICT_LINE[lang][verdict]]
     if verdict is not Verdict.COULD_NOT_CHECK:
         lines = reasons(verdict, signals, lang)
         if reviewed and verdict is Verdict.LIKELY_FAKE:
@@ -237,6 +246,9 @@ def strongest_reason(verdict: Verdict, signals: list[Signal], lang: str, reviewe
 def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender: str = "general",
           reviewed: bool = False) -> str:
     """The bot's reply: verdict line, the strongest reason, one action line, one line of review status."""
+    if verdict is Verdict.COULD_NOT_CHECK and kind is Kind.TEXT:
+        line, action = TOO_SHORT[lang]
+        return "\n\n".join([line, action, FOOTER_SHORT[reviewed][lang]])
     if kind is Kind.VOICE and verdict is not Verdict.COULD_NOT_CHECK:
         action = SHORT_ACTION_VOICE[lang]
     elif verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):

@@ -109,7 +109,8 @@ def analyse_text(
     # Trinetra's own stamp (the verify line and link) is not part of the notice.
     text = issuer_codes.strip_stamp(text)
     readable = is_readable(text)
-    lang = lang or (reply.detect_lang(text) if readable else fallback_lang)
+    # A text too short to check still shows its script, so a one-word Hindi message is answered in Hindi.
+    lang = lang or (reply.detect_lang(text) if readable or (kind is Kind.TEXT and text.strip()) else fallback_lang)
 
     fields = field_extractor.extract(text) if readable else Fields()
     issued = issuer_check.run(text, fields, codes, issuers) if readable else issuer_check.IssuerCheck()

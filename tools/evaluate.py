@@ -2,6 +2,8 @@
 
     python tools/evaluate.py                                    # dev split (default)
     python tools/evaluate.py --split test --markdown docs/RESULTS.md   # once, at the end
+    python tools/evaluate.py --sms data/external/sms_spam/SMSSpamCollection --results docs/RESULTS.md
+                                                                # real-world check on public SMS
 
 Runs offline. Expected verdicts come from data/test-set/labels.csv and are never changed here.
 """
@@ -10,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import random
+import re
 import statistics
 import subprocess
 import sys
@@ -228,63 +232,214 @@ def run_info(split: str) -> dict[str, str]:
     }
 
 
-def markdown(rows: list[Row], split: str, console: list[str]) -> str:
+VERDICTS = ("likely_fake", "suspicious", "cannot_verify", "verified_official", "could_not_check")
+FORMAT_NAMES = {"png": "Original (clean image)", "pdf": "Original (PDF)", "whatsapp_jpg": "WhatsApp-compressed",
+                "photo_jpg": "Phone photo of a printout", "crop_jpg": "Cropped (top part only)", "text": "Text message",
+                "audio": "Voice note"}
+LANG_NAMES = {"en": "English", "hi": "Hindi", "bi": "Hindi + English (bilingual)"}
+RERUN = "LLM_MODE=off STT_MODE=off AUDIO_MODEL=off .venv/bin/python tools/evaluate.py --split {split} --markdown docs/RESULTS.md"
+
+
+def markdown(rows: list[Row], split: str, console: list[str], fixes: list[str] = ()) -> str:
+    """The results written for judges: totals, never-allowed errors first, then the breakdowns."""
     s = summary(rows)
     done = s["done"]
     pct = lambda a, b: f"{a / b:.0%}" if b else "n/a"  # noqa: E731
-    md = [f"# Trinetra results: {split} split", ""]
+    errors = [r for r in done if r.error]
+    md = [f"# Trinetra: measured accuracy ({split} split)", ""]
     md += ["| | |", "| --- | --- |"] + [f"| {k} | {v} |" for k, v in run_info(split).items()]
-    md += ["", f"{len(done)} items run, {len(s['skipped'])} skipped. Expected verdicts come from "
-           "`data/test-set/labels.csv`. No code, rules or thresholds were changed after this run.", ""]
-    md += ["## Headline", "", "| Measure | Result | Target |", "| --- | --- | --- |",
-           f"| Correct verdicts | {s['correct']}/{len(done)} ({pct(s['correct'], len(done))}) | |",
-           f"| Forged rated verified official | {s['forged_verified']} | 0 |",
-           f"| Forged rated likely fake or suspicious | {s['forged_caught']}/{len(s['forged'])} "
-           f"({pct(s['forged_caught'], len(s['forged']))}) | 90% |",
-           f"| Genuine rated likely fake | {s['genuine_likely_fake']} | 0 |",
-           f"| Genuine flagged at all (false positives) | {len(s['false_positives'])}/{len(s['genuine'])} | |",
-           f"| Hard failures | {len(s['hard'])} | 0 |",
-           f"| Median time per item | {s['median']:.2f} s | ≤ 60 s |",
-           f"| 95th-percentile time | {s['p95']:.2f} s | |", ""]
+    md += ["", "Every item in the split was run once through the full pipeline (OCR, extraction, checks, rule table), "
+           "offline. Expected verdicts come from `data/test-set/labels.csv`; no rules, signals or thresholds were "
+           "changed after seeing these results.", ""]
 
-    def grouped(title: str, groups: dict[str, list[Row]]) -> list[str]:
-        lines = [f"## {title}", "", "| | Items | Correct | Accuracy | Hard failures |", "| --- | --- | --- | --- | --- |"]
+    md += ["## Totals", "",
+           f"- **{len(done)}** items checked; **{s['correct']}** got the expected verdict "
+           f"(**{pct(s['correct'], len(done))}**).",
+           "- For cropped notices whose payee or contact may be cut off, the label accepts either *likely fake* or "
+           "*suspicious*; both count as expected.",
+           f"- Time per check: median **{s['median']:.2f} s**, slowest **{max((r.seconds for r in done), default=0):.2f} s** "
+           f"(95th percentile {s['p95']:.2f} s). The target is a reply within 60 s.", ""]
+
+    md += ["## Never-allowed errors (must_never_be)", "",
+           "The most important number: a fake notice must never be called *verified official*, and a genuine one must "
+           "never be called *likely fake*.", "",
+           f"**{len(s['hard'])} violations** "
+           f"({s['forged_verified']} fakes called verified official, {s['genuine_likely_fake']} genuine items called likely fake).", ""]
+    md += [f"- `{r.file}`: got **{r.got}**, which must never happen for this item" for r in s["hard"]]
+    md += [*([""] if s["hard"] else []), f"Genuine items flagged at all (likely fake or suspicious): "
+           f"{len(s['false_positives'])} of {len(s['genuine'])}. Fakes caught (likely fake or suspicious): "
+           f"{s['forged_caught']} of {len(s['forged'])} ({pct(s['forged_caught'], len(s['forged']))}; target 90%).", ""]
+
+    md += ["## Expected verdict vs what Trinetra gave", "",
+           "| Expected ↓ / Given → | " + " | ".join(VERDICTS) + " | Total |",
+           "| --- | " + " | ".join("---" for _ in VERDICTS) + " | --- |"]
+    for expected, group in groups_by(done, "expected").items():
+        counts = [sum(r.got == v for r in group) for v in VERDICTS]
+        md.append(f"| **{expected}** | " + " | ".join(str(c) if c else "·" for c in counts) + f" | {len(group)} |")
+    if errors:
+        md.append(f"\n{len(errors)} item(s) crashed and are counted as wrong.")
+    md.append("")
+
+    def grouped(title: str, groups: dict[str, list[Row]], names: dict[str, str], note: str = "") -> list[str]:
+        lines = [f"## {title}", ""] + ([note, ""] if note else [])
+        lines += ["| | Items | Expected verdict | Accuracy | Never-allowed errors |", "| --- | --- | --- | --- | --- |"]
         for key, g in groups.items():
             c = sum(r.correct for r in g)
-            lines.append(f"| {key} | {len(g)} | {c} | {pct(c, len(g))} | {sum(r.hard_failure for r in g)} |")
+            lines.append(f"| {names.get(key, key)} | {len(g)} | {c} | {pct(c, len(g))} | {sum(r.hard_failure for r in g)} |")
         return lines + [""]
 
-    md += grouped("Accuracy per expected verdict", groups_by(done, "expected"))
-    md += grouped("By language", groups_by(done, "lang"))
-    md += grouped("By format", groups_by(done, "format"))
-    md += ["## False positives (genuine items flagged)", ""]
-    md += [f"- `{r.file}`: got **{r.got}** ({r.rule_row})" for r in s["false_positives"]] or ["None."]
-    md += ["", "## Hard failures", ""]
-    md += [f"- `{r.file}`: got **{r.got}**, must never be {r.must_never_be}" for r in s["hard"]] or ["None."]
-    md += ["", "## Every wrong verdict, with why", ""]
-    if not s["wrong"]:
-        md.append("None.")
-    for r in s["wrong"]:
-        md += [f"### `{r.file}`", "",
-               f"- Truth: {r.truth}. Expected **{r.expected}**, got **{r.got}** (rule row {r.rule_row or 'none'}).",
-               f"- Why: {r.why()}"]
-        md += [f"- Signal `{code}` ({strength}): {reason}" for code, strength, reason in r.signals] or ["- No signals fired."]
-        md.append("")
-    md += ["## Skipped", ""]
-    md += [f"- `{r.file}`: {r.skipped}" for r in s["skipped"]] or ["None."]
-    md += ["", "## Per item", "", "| Item | Format | Lang | Truth | Expected | Got | Rule | Time |",
+    formats = groups_by(done, "format")
+    note = ("" if {"png", "pdf"} & formats.keys() else
+            "The originals (clean PNG and PDF) are all in the dev split, used to build the rules, so they are not "
+            "measured here. This split holds the same notices as WhatsApp-compressed copies, phone photos and crops.")
+    md += grouped("By format", formats, FORMAT_NAMES, note)
+    md += grouped("By language", groups_by(done, "lang"), LANG_NAMES)
+
+    md += ["## Every miss, with why", ""]
+    md += [f"- `{r.file}`: expected {r.expected}, got **{r.got}**. {r.why()}" for r in s["wrong"]] or ["None."]
+    md.append("")
+
+    md += ["## Not included yet", ""]
+    voice = [r for r in s["skipped"] if r.kind == "voice"]
+    if voice:
+        md.append(f"- The voice checks ({', '.join(r.item for r in voice)}) are not included yet: speech-to-text "
+                  "and the audio model are not wired up, and the recordings do not exist yet.")
+    md += [f"- `{r.file}`: {r.skipped}" for r in s["skipped"] if r.kind != "voice"]
+    if not s["skipped"]:
+        md.append("Nothing; every item in the split was run.")
+    md.append("")
+
+    md += ["## Bugs fixed during this run", ""]
+    md += [f"- {f}" for f in fixes] or ["None. Nothing crashed and no item failed because of a bug."]
+    md += ["", "## How to read these numbers", "",
+           "- The test set is synthetic and small, so one miss moves accuracy by about 3 points.",
+           "- The test split shows the same notices as the dev split, transformed. It measures how well checks survive "
+           "compression, photos and crops, not how they do on scam notices never seen before.", ""]
+
+    md += ["## How to rerun", "", "From the repository root:", "", "```sh", RERUN.format(split=split), "```", "",
+           "## Per item", "", "| Item | Format | Language | Truth | Expected | Given | Rule | Time |",
            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
-    md += [f"| `{r.file}` | {r.format} | {r.lang} | {r.truth} | {r.expected} | {r.got}{'' if r.correct else ' ✗'} | "
-           f"{r.rule_row} | {r.seconds:.2f} s |" for r in done]
+    md += [f"| `{r.file}` | {FORMAT_NAMES.get(r.format, r.format)} | {LANG_NAMES.get(r.lang, r.lang)} | {r.truth} | "
+           f"{r.expected} | {r.got}{'' if r.correct else ' (miss)'} | {r.rule_row} | {r.seconds:.2f} s |" for r in done]
     md += ["", "## Full console output", "", "```", *console, "```", ""]
     return "\n".join(md)
+
+
+# --- real-world check: the UCI SMS Spam Collection ---------------------------------------------------
+
+SMS_SECTION = "## Real-world check: public SMS dataset"
+SMS_SAMPLE = 500
+SMS_SEED = 20261024
+FLAGGED = ("likely_fake", "suspicious")
+
+
+@dataclass
+class SmsRow:
+    label: str  # "ham" or "spam"
+    text: str
+    got: str = ""
+    rule_row: str = ""
+    signals: list[tuple[str, str, str]] = field(default_factory=list)
+    seconds: float = 0.0
+
+
+def run_sms(path: Path, sample: int, seed: int) -> tuple[list[SmsRow], int]:
+    """A fixed-seed random sample, run through the text pipeline with the rules exactly as they are."""
+    messages = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        label, _, text = line.partition("\t")
+        if label in ("ham", "spam") and text.strip():
+            messages.append(SmsRow(label, text))
+    picked = random.Random(seed).sample(messages, min(sample, len(messages)))
+    for row in picked:
+        start = time.perf_counter()
+        result = pipeline.check_text(row.text, kind=Kind.TEXT)
+        row.seconds = time.perf_counter() - start
+        row.got, row.rule_row = result.verdict.value, result.rule_row
+        row.signals = [(s.code, s.strength.value, s.reason_en) for s in result.signals]
+    return picked, len(messages)
+
+
+def _md_text(text: str) -> str:
+    return re.sub(r"([\\`*_|<>\[\]#])", r"\\\1", " ".join(text.split()))
+
+
+def sms_report(rows: list[SmsRow], total: int, path: Path, sample: int, seed: int) -> tuple[list[str], str]:
+    ham = [r for r in rows if r.label == "ham"]
+    spam = [r for r in rows if r.label == "spam"]
+    alarms = [r for r in ham if r.got in FLAGGED]
+    caught = [r for r in spam if r.got in FLAGGED]
+    pct = lambda a, b: f"{a / b:.1%}" if b else "n/a"  # noqa: E731
+    seconds = [r.seconds for r in rows]
+
+    console = [f"SMS check: {len(rows)} of {total} messages (seed {seed}): {len(ham)} ham, {len(spam)} spam",
+               f"  ham flagged (false alarms): {len(alarms)}/{len(ham)} = {pct(len(alarms), len(ham))}",
+               f"  spam flagged:               {len(caught)}/{len(spam)} = {pct(len(caught), len(spam))}"]
+    for r in alarms:
+        console.append(f"  FALSE ALARM {r.got} ({r.rule_row}): {' '.join(r.text.split())}")
+        console += [f"      {code} ({strength}): {reason}" for code, strength, reason in r.signals]
+
+    def counts(group: list[SmsRow]) -> str:
+        return " | ".join(str(sum(r.got == v for r in group)) for v in VERDICTS)
+
+    command = (f"LLM_MODE=off STT_MODE=off AUDIO_MODEL=off .venv/bin/python tools/evaluate.py --sms {path} "
+               f"--sample {sample} --seed {seed} --results docs/RESULTS.md")
+    md = [SMS_SECTION, "",
+          "A check on real messages Trinetra was never built on: the "
+          "[UCI SMS Spam Collection](https://doi.org/10.24432/C5CC84) (Almeida and Hidalgo, 2011; CC BY 4.0), "
+          f"5,574 English SMS labelled *ham* (normal) or *spam*. A fixed-seed random sample of **{len(rows)}** messages "
+          f"(seed {seed}) was run through the same text pipeline and rule table as everything else. No rules were "
+          "changed for, or after, this check.", "",
+          f"Run at {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} UTC, engine {ENGINE_VERSION}. Median time per message "
+          f"{statistics.median(seconds):.3f} s, slowest {max(seconds):.3f} s.", "",
+          "| | Messages | Flagged (likely fake or suspicious) | " + " | ".join(VERDICTS) + " |",
+          "| --- | --- | --- | " + " | ".join("---" for _ in VERDICTS) + " |",
+          f"| Normal (ham) | {len(ham)} | **{len(alarms)} ({pct(len(alarms), len(ham))})**, false alarms | {counts(ham)} |",
+          f"| Spam | {len(spam)} | **{len(caught)} ({pct(len(caught), len(spam))})** | {counts(spam)} |", "",
+          "**Spam is not the same as financial scams.** Most spam in this dataset is prize draws, ringtone offers, "
+          "dating lines and adverts. Trinetra looks for one thing: a message that claims to be an official body or a "
+          "bank and pushes you to pay. So most spam getting *cannot verify* is expected, and the spam number is not a "
+          "detection rate. The number that matters here is the false alarms on normal messages.", "",
+          f"### Normal messages flagged ({len(alarms)})", ""]
+    if alarms:
+        for r in alarms:
+            reason = r.signals[0][2] if r.signals else ""
+            md.append(f"- **{r.got}** ({r.rule_row}): “{_md_text(r.text)}”  ")
+            md.append(f"  Signals: {', '.join(f'`{c}` ({s})' for c, s, _ in r.signals)}. First reason: {reason}")
+    else:
+        md.append("None.")
+    md += ["", "### How to rerun", "",
+           "Download the zip from the UCI page into `data/external/sms_spam/` (git-ignored), unzip it, then:", "",
+           "```sh", command, "```", ""]
+    return console, "\n".join(md)
+
+
+def write_sms_section(results: Path, section: str) -> None:
+    """Append the section to RESULTS.md, replacing an earlier SMS section so a rerun does not duplicate it."""
+    existing = results.read_text(encoding="utf-8") if results.exists() else ""
+    if SMS_SECTION in existing:
+        existing = existing[: existing.index(SMS_SECTION)]
+    results.parent.mkdir(parents=True, exist_ok=True)
+    results.write_text(existing.rstrip("\n") + "\n\n" + section, encoding="utf-8")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--split", choices=("dev", "test"), default="dev")
     parser.add_argument("--markdown", type=Path, help="also write the full results as Markdown to this file")
+    parser.add_argument("--sms", type=Path, help="instead, run a sample of the UCI SMS Spam Collection file")
+    parser.add_argument("--sample", type=int, default=SMS_SAMPLE, help="how many SMS to sample (default 500)")
+    parser.add_argument("--seed", type=int, default=SMS_SEED, help="random seed for the SMS sample")
+    parser.add_argument("--results", type=Path, help="with --sms: append the SMS section to this RESULTS.md")
     args = parser.parse_args()
+    if args.sms:
+        rows, total = run_sms(args.sms, args.sample, args.seed)
+        console, section = sms_report(rows, total, args.sms, args.sample, args.seed)
+        print("\n".join(console))
+        if args.results:
+            write_sms_section(args.results, section)
+            print(f"\nAppended to {args.results}")
+        return
     rows = run(args.split)
     console = report(rows, args.split)
     print("\n".join(console))

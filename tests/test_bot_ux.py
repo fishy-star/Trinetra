@@ -314,3 +314,46 @@ def test_bot_verdicts_and_buttons_use_plain_words(intake):
     assert [reply.SHORT_VERDICT["en"][v] for v in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS, Verdict.CANNOT_VERIFY,
                                                   Verdict.VERIFIED_OFFICIAL)] == [
         "Likely fake. Do not pay.", "Suspicious. Check before you pay.", "We couldn't verify this.", "Verified official."]
+
+
+# --- "could not check": a short text is not an unreadable file ------------------------------------
+
+
+def test_short_text_says_it_is_too_short(phone):
+    reply_ = phone.send("Ok")[-1]  # one word: nothing readable to check (R0)
+    assert reply_.split("\n\n")[:2] == ["This message is too short to check.",
+                                       "Forward the full message, or a screenshot of it."]
+    assert "file" not in reply_
+
+
+def test_short_text_in_hindi(intake):
+    p = Phone(intake, chat="hi-short", app_lang="hi")
+    p.send("YES")
+    assert p.send("ठीक")[-1].startswith("यह संदेश जाँच के लिए बहुत छोटा है।\n\nपूरा संदेश या उसका स्क्रीनशॉट फ़ॉरवर्ड करें।")
+
+
+def test_unreadable_photo_still_says_file(phone):
+    import io
+
+    from PIL import Image
+
+    blank = io.BytesIO()
+    Image.new("RGB", (800, 600), "white").save(blank, "PNG")
+    assert phone.send(photo=blank.getvalue())[-1].startswith("We couldn't read this file.")
+
+
+def test_web_page_short_text_says_too_short():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    page = TestClient(app).post("/check", data={"text": "ok"}).text
+    assert "This message is too short to check. Forward the full message, or a screenshot of it." in page
+    assert "couldn&#x27;t read this file" not in page and "could not read this file" not in page
+
+
+def test_web_page_short_hindi_text_gets_hindi():
+    from app.pipeline import check_text
+
+    assert check_text("ठीक").reply.startswith("यह संदेश जाँच के लिए बहुत छोटा है।")
+    assert check_text("😀 👍").reply.startswith("This message is too short to check.")

@@ -188,7 +188,7 @@ def test_could_not_read_offers_only_help_and_feedback(tg):
     tg.text(1, "😀 👍")
     tg.poll()
     reply = verdict_of(tg, 1)
-    assert reply["text"].startswith("We couldn't read this file.")
+    assert reply["text"].startswith("This message is too short to check.")
     labels = [[b["text"] for b in row] for row in reply["reply_markup"]["inline_keyboard"]]
     assert labels == [["Help"], ["Helpful", "Not helpful"]]
 

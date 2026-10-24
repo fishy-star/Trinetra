@@ -43,7 +43,45 @@ def test_reports_render_misses_without_crashing():
     console = report(rows(), "test")
     assert any("Wrong verdicts: 5" in line for line in console)
     md = markdown(rows(), "test", console)
-    for heading in ("## Headline", "## False positives (genuine items flagged)", "## Hard failures",
-                    "## Every wrong verdict, with why", "## By language", "## By format", "## Full console output"):
+    for heading in ("## Totals", "## Never-allowed errors (must_never_be)", "## Expected verdict vs what Trinetra gave",
+                    "## By format", "## By language", "## Every miss, with why", "## Not included yet",
+                    "## Bugs fixed during this run", "## How to rerun", "## Full console output"):
         assert heading in md
-    assert "### `png/C.png`" in md and "Signal `ask.secrecy` (weak)" in md
+    assert md.index("## Never-allowed errors") < md.index("## Expected verdict vs")
+    assert "**1 violations** (0 fakes called verified official, 1 genuine items called likely fake)" in md
+    assert "- `png/C.png`: got **likely_fake**" in md
+    assert "| **cannot_verify** | 1 | 1 | · | · | · | 2 |" in md  # confusion table row
+    assert "The voice checks (V1) are not included yet" in md
+    assert "tools/evaluate.py --split test --markdown docs/RESULTS.md" in md
+    assert "Phone photo of a printout" in md and "originals (clean PNG and PDF) are all in the dev split" in md
+
+
+def test_sms_mode_reports_and_appends_once(tmp_path):
+    from tools.evaluate import SMS_SECTION, run_sms, sms_report, write_sms_section
+
+    data = tmp_path / "SMSSpamCollection"
+    data.write_text(
+        "ham\tSee you at 6, bring the keys\n"
+        "spam\tYou WON a prize! Call 09061701461 to claim\n"
+        "ham\tYour SBI account is blocked today. Pay Rs 499 to kyc.update@ybl immediately | fee\n"
+        "not-a-label\tignored\n", encoding="utf-8")
+    rows, total = run_sms(data, sample=10, seed=1)
+    assert total == 3 and len(rows) == 3
+    console, section = sms_report(rows, total, data, 10, 1)
+    assert section.startswith(SMS_SECTION) and "Spam is not the same as financial scams" in section
+    assert "### Normal messages flagged (1)" in section and "\\| fee" in section  # listed, with | escaped
+    assert "--sms" in section and "--seed 1" in section
+    results = tmp_path / "RESULTS.md"
+    results.write_text("# Results\n", encoding="utf-8")
+    write_sms_section(results, section)
+    write_sms_section(results, section)
+    assert results.read_text(encoding="utf-8").count(SMS_SECTION) == 1
+
+
+def test_sms_sample_is_reproducible(tmp_path):
+    from tools.evaluate import run_sms
+
+    data = tmp_path / "s"
+    data.write_text("".join(f"ham\tmessage number {i}\n" for i in range(50)), encoding="utf-8")
+    first = [r.text for r in run_sms(data, 10, 7)[0]]
+    assert first == [r.text for r in run_sms(data, 10, 7)[0]] and len(set(first)) == 10

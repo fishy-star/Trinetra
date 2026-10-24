@@ -118,5 +118,6 @@ Python, FastAPI, SQLite, Tesseract OCR, pyHanko (PDF signatures), Amazon Transcr
 
 - **Test data:** `data/test-set/` is synthetic. All names, account numbers, UPI IDs and phone numbers in it are invented.
 - **Evaluation datasets** (not for commercial use): AIForge-Doc v2 (CC BY-NC-SA 4.0), RealText-V2 (CC BY-NC 4.0), IndicSynth (CC BY-NC 4.0), IndieFake (research use).
+- **Real-world SMS check:** the [SMS Spam Collection](https://doi.org/10.24432/C5CC84) by Tiago A. Almeida and José María Gómez Hidalgo (2011), from the UCI Machine Learning Repository, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Used unmodified, downloaded into `data/external/sms_spam/` (not committed), to measure false alarms on ordinary messages.
 - **Models:** XLS-R + SLS audio deepfake detector (MIT licence), Amazon Transcribe, Amazon Bedrock.
 - **AI-assisted development:** parts of this project were built with help from Claude and Claude Code (Anthropic).
