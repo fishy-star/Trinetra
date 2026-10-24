@@ -13,7 +13,7 @@ from app.extract import fields as field_extractor
 from app.extract import ocr
 from app.extract.mask import mask_fields
 from app.models import Fields, Kind, Result
-from app.registry import known_fakes
+from app.registry import known_fakes, normalize_payee
 
 log = logging.getLogger(__name__)
 
@@ -33,10 +33,14 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
+def is_known_fake_hash(sha256: str) -> bool:
+    return sha256 in known_fakes().get("hashes", [])
+
+
 def _known_fake(sha256: str, fields: Fields) -> bool:
     fakes = known_fakes()
-    payees = {p.lower() for p in fakes.get("payees", [])}
-    return sha256 in fakes.get("hashes", []) or any(p.lower() in payees for p in fields.payees)
+    payees = {normalize_payee(p) for p in fakes.get("payees", [])}
+    return sha256 in fakes.get("hashes", []) or any(normalize_payee(p) in payees for p in fields.payees)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -45,13 +49,7 @@ def sha256_bytes(data: bytes) -> str:
 
 def check_file(data: bytes, *, sha256: str | None = None, lang: str | None = None, fallback_lang: str = "en") -> Result:
     """A notice as an image (PNG/JPEG) or a PDF. The caller has already checked the type by magic bytes."""
-    sha256 = sha256 or sha256_bytes(data)
-    try:
-        text = ocr.file_text(data)
-    except ocr.UnreadableFile as e:
-        log.info("could not read file sha256=%s: %s", sha256[:12], e)
-        text = ""
-    return check_text(text, kind=Kind.NOTICE, sha256=sha256, lang=lang, fallback_lang=fallback_lang)
+    return analyse_file(data, sha256=sha256, lang=lang, fallback_lang=fallback_lang)[0]
 
 
 def check_text(
@@ -63,6 +61,30 @@ def check_text(
     fallback_lang: str = "en",
 ) -> Result:
     """Run the full check on text: a forwarded message, or text extracted from a notice or voice note."""
+    return analyse_text(text, kind=kind, sha256=sha256, lang=lang, fallback_lang=fallback_lang)[0]
+
+
+def analyse_file(
+    data: bytes, *, sha256: str | None = None, lang: str | None = None, fallback_lang: str = "en"
+) -> tuple[Result, Fields]:
+    sha256 = sha256 or sha256_bytes(data)
+    try:
+        text = ocr.file_text(data)
+    except ocr.UnreadableFile as e:
+        log.info("could not read file sha256=%s: %s", sha256[:12], e)
+        text = ""
+    return analyse_text(text, kind=Kind.NOTICE, sha256=sha256, lang=lang, fallback_lang=fallback_lang)
+
+
+def analyse_text(
+    text: str,
+    *,
+    kind: Kind = Kind.TEXT,
+    sha256: str | None = None,
+    lang: str | None = None,
+    fallback_lang: str = "en",
+) -> tuple[Result, Fields]:
+    """The check, plus the unmasked fields. Only a report, after the user's consent, may keep those."""
     sha256 = sha256 or sha256_text(text)
     text = strip_test_footer(text)
     readable = is_readable(text)
@@ -75,7 +97,8 @@ def check_text(
     known = readable and _known_fake(sha256, fields)
 
     v, row = verdict.decide(kind, signals, known, source_proven, readable)
-    return Result(
+    group = reply.sender_group(fields.sender_type, fields.sender_id)
+    result = Result(
         kind=kind,
         sha256=sha256,
         verdict=v,
@@ -83,7 +106,9 @@ def check_text(
         signals=signals,
         fields=mask_fields(fields),
         lang=lang,
-        reply=reply.build(v, signals, kind, lang, reply.sender_group(fields.sender_type, fields.sender_id)),
+        reply=reply.build(v, signals, kind, lang, group, reviewed=row == "R1"),
         engine_version=ENGINE_VERSION,
         needs_review=verdict.needs_review(signals, source_proven),
+        reviewed=row == "R1",
     )
+    return result, fields

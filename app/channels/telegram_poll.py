@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 import time
 from functools import partial
 
 from app.channels.telegram import TelegramAPI, TelegramError, parse_update
 from app.config import settings
 from app.intake import Intake
+from app.jobs import start_purger
 from app.store import Store
 
 log = logging.getLogger("trinetra.telegram_poll")
@@ -43,7 +45,10 @@ def main() -> None:
         sys.exit("USER_ID_SALT is not set. Load .env first.")
 
     api = TelegramAPI(settings.telegram_bot_token)
-    intake = Intake(Store(settings.data_dir / "trinetra.db"), settings.user_id_salt)
+    store = Store(settings.data_dir / "trinetra.db")
+    intake = Intake(store, settings.user_id_salt, data_dir=settings.data_dir, media_ttl_hours=settings.media_ttl_hours)
+    stop = threading.Event()
+    start_purger(store, intake.media, stop)
     log.info("polling Telegram; press Ctrl+C to stop")
     offset = None
     try:
@@ -57,6 +62,7 @@ def main() -> None:
                     log.warning("%s; retrying in 5 s", e)
                 time.sleep(5)
     except KeyboardInterrupt:
+        stop.set()
         log.info("stopped")
 
 

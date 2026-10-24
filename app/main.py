@@ -1,8 +1,11 @@
-"""FastAPI app: web upload page and the Telegram webhook (more routes arrive with later milestones)."""
+"""FastAPI app: web upload page, the Telegram webhook and the review console."""
 
 from __future__ import annotations
 
 import hmac
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from html import escape
@@ -15,11 +18,24 @@ from pydantic import BaseModel
 from app import pipeline
 from app.channels.telegram import TelegramAPI, parse_update
 from app.config import settings
+from app.console import router as console_router
+from app.evidence import MediaDir
 from app.extract import ocr
 from app.intake import MAX_BYTES, MESSAGES, Intake
+from app.jobs import start_purger
 from app.store import Store
 
-app = FastAPI(title="Trinetra")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    stop = threading.Event()
+    start_purger(Store(settings.data_dir / "trinetra.db"), MediaDir(settings.data_dir / "media"), stop)
+    yield
+    stop.set()
+
+
+app = FastAPI(title="Trinetra", lifespan=lifespan)
+app.include_router(console_router)
 
 
 @dataclass(frozen=True)
@@ -35,7 +51,8 @@ def telegram_deps() -> TelegramDeps | None:
     if not (settings.telegram_bot_token and settings.telegram_webhook_secret and settings.user_id_salt):
         return None
     store = Store(settings.data_dir / "trinetra.db")
-    return TelegramDeps(TelegramAPI(settings.telegram_bot_token), Intake(store, settings.user_id_salt), settings.telegram_webhook_secret)
+    intake = Intake(store, settings.user_id_salt, data_dir=settings.data_dir, media_ttl_hours=settings.media_ttl_hours)
+    return TelegramDeps(TelegramAPI(settings.telegram_bot_token), intake, settings.telegram_webhook_secret)
 
 
 @app.post("/telegram/webhook")
@@ -54,6 +71,7 @@ async def telegram_webhook(
         # Answer Telegram at once; the "Checking…" message and the verdict are sent from the background task.
         background.add_task(deps.intake.handle, msg, partial(deps.api.send_message, msg.chat_id))
     return {"ok": True}
+
 
 MAX_TEXT_CHARS = 5000
 

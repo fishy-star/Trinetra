@@ -83,6 +83,15 @@ set -a; source .env; set +a
 python -m app.channels.telegram_poll
 ```
 
+**Review console.** Set `REVIEWERS` (comma-separated names) and `REVIEWER_PASSWORD` in `.env`, then run the web service in a second terminal and open `http://localhost:8000/console`:
+
+```bash
+set -a; source .env; set +a
+uvicorn app.main:app --port 8000
+```
+
+The bot and the web service share the database in `DATA_DIR`. Approving a case as fake adds its file hashes and payees to `data/registry/known_fakes.json` and writes a PDF + JSON evidence packet.
+
 Polling and a webhook cannot run at the same time. The deployed service uses the webhook at `/telegram/webhook` instead, which is off until `TELEGRAM_WEBHOOK_SECRET` is set.
 
 **Offline mode.** With `LLM_MODE=off STT_MODE=off AUDIO_MODEL=off`, everything runs without AWS or internet. That is also how the tests run.

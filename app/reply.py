@@ -74,6 +74,12 @@ NO_SIGNALS = {
     "गए हैं, तो पहले किसी आधिकारिक नंबर से पुष्टि करें।",
 }
 
+# R1: the item matches a fake a reviewer has confirmed. Always shown with the reviewed footer.
+KNOWN_FAKE = {
+    "en": "It matches a notice or payee our team has already confirmed as fake.",
+    "hi": "यह किसी ऐसे नोटिस या भुगतान खाते से मेल खाता है जिसे हमारी टीम पहले ही नकली के रूप में पुष्टि कर चुकी है।",
+}
+
 CHECK_ORDER = ("source", "ask", "media")
 _RANK = {Strength.PROOF: 0, Strength.STRONG: 1, Strength.WEAK: 2}
 
@@ -111,10 +117,15 @@ def build(
     sender: str = "general",
     reviewed: bool = False,
 ) -> str:
-    """`sender` is the group from `sender_group`: "authority", "finance" or "general"."""
+    """`sender` is the group from `sender_group`: "authority", "finance" or "general".
+
+    `reviewed` is set for R1, a match to a reviewer-confirmed fake.
+    """
     parts = [VERDICT_LINE[lang][verdict]]
     if verdict is not Verdict.COULD_NOT_CHECK:
         lines = reasons(verdict, signals, lang)
+        if reviewed and verdict is Verdict.LIKELY_FAKE:
+            lines = [KNOWN_FAKE[lang], *lines][:3]
         parts.append("\n".join(f"• {r}" for r in lines) if lines else NO_SIGNALS[lang])
     if verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
         parts.append(ACTION_FAKE[sender][lang])

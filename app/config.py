@@ -25,6 +25,7 @@ class Settings:
     stt_mode: str
     audio_model: str
     reviewers: tuple[str, ...]
+    reviewer_password: str | None
     data_dir: Path
     media_ttl_hours: int
     user_id_salt: str | None
@@ -49,6 +50,7 @@ class Settings:
             stt_mode=env("STT_MODE", "off"),
             audio_model=env("AUDIO_MODEL", "off"),
             reviewers=tuple(r.strip() for r in env("REVIEWERS", "").split(",") if r.strip()),
+            reviewer_password=env("REVIEWER_PASSWORD"),
             data_dir=ROOT / env("DATA_DIR", "data/runtime"),  # a relative path is taken from the repo root
             media_ttl_hours=int(env("MEDIA_TTL_HOURS", "24")),
             user_id_salt=env("USER_ID_SALT"),
