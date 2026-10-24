@@ -224,6 +224,15 @@ body.zone-public .btn-lg { width: 100%; }
 .alert li { margin-bottom: 4px; }
 .alert p:last-child { margin-bottom: 0; }
 
+.web-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+.web-actions details.act { flex: 1 1 220px; }
+.web-actions summary { list-style: none; cursor: pointer; }
+.web-actions summary::-webkit-details-marker { display: none; }
+.web-actions details[open] > summary { margin-bottom: 8px; }
+.web-actions form, .web-actions .paid { padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; }
+.web-actions .check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+.dispute form { margin-top: 12px; }
+.qr-sm svg { width: 112px; margin: 0; background: #fff; border-radius: 6px; }
 .feedback { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .try-grid { display: grid; gap: 20px; grid-template-columns: 1fr; margin-bottom: 18px; }
 @media (min-width: 760px) { .try-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; } }

@@ -137,6 +137,23 @@ CREATE TABLE IF NOT EXISTS feedback (
     verdict     TEXT NOT NULL,
     vote        TEXT NOT NULL                -- helpful | not_helpful
 );
+CREATE TABLE IF NOT EXISTS disputes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,
+    channel     TEXT NOT NULL,               -- telegram | web
+    chat_id     TEXT,                        -- only to send the outcome; cleared once it is sent
+    user_hash   TEXT,
+    lang        TEXT NOT NULL,
+    sha256      TEXT NOT NULL,               -- the checked item; no raw media unless it was reported
+    kind        TEXT NOT NULL,
+    verdict     TEXT NOT NULL,
+    rule_row    TEXT NOT NULL,
+    signals_json TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open', -- open | confirmed_genuine | kept
+    reviewer    TEXT,
+    note        TEXT,
+    resolved_at TEXT
+);
 CREATE TABLE IF NOT EXISTS checks (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     at          TEXT NOT NULL,               -- counts only: no hash, no user, no content
@@ -155,7 +172,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 """
 
 # Columns added after the first schema, for databases made by earlier versions.
-MIGRATIONS = {"results": {"lang": "TEXT"}, "users": {"pending": "TEXT"}}
+MIGRATIONS = {"results": {"lang": "TEXT"}, "users": {"pending": "TEXT"}, "feedback": {"note": "TEXT"}}
 
 CASE_STATUSES = ("open", "approved_fake", "not_fake", "needs_info")
 
@@ -277,6 +294,7 @@ class Store:
                     db.execute("DELETE FROM results WHERE sha256 = ?", (item["sha256"],))
                     if item["media_path"] and not self._is_reported(db, item["sha256"]):
                         media.append(item["media_path"])
+            db.execute("DELETE FROM disputes WHERE user_hash = ?", (user_hash,))
             db.execute("DELETE FROM users WHERE user_hash = ?", (user_hash,))
         return sorted(set(media)), evidence
 
@@ -630,6 +648,61 @@ class Store:
                 (row["sha256"] if row else sha_prefix.lower(), verdict, vote),
             )
 
+    def add_feedback_note(self, sha_prefix: str, note: str) -> bool:
+        """Attach a one-line note to the latest "not helpful" vote on this item that has none."""
+        with self._db() as db:
+            row = db.execute(
+                "SELECT id FROM feedback WHERE sha256 LIKE ? AND vote = 'not_helpful' AND note IS NULL "
+                "ORDER BY id DESC LIMIT 1", (sha_prefix.lower() + "%",),
+            ).fetchone()
+            if row:
+                db.execute("UPDATE feedback SET note = ? WHERE id = ?", (note, row["id"]))
+            return row is not None
+
+    # --- disputes: "this message is actually genuine" ----------------------------------------
+
+    def add_dispute(self, *, channel: str, chat_id: str | None, user_hash: str | None, lang: str, sha256: str,
+                    kind: str, verdict: str, rule_row: str, signals: list) -> tuple[int, bool]:
+        """Open a dispute. Returns (id, created); an open dispute by the same person on the same item is reused."""
+        with self._db() as db:
+            if user_hash:
+                row = db.execute(
+                    "SELECT id FROM disputes WHERE user_hash = ? AND sha256 = ? AND status = 'open'", (user_hash, sha256)
+                ).fetchone()
+                if row:
+                    return row["id"], False
+            cur = db.execute(
+                "INSERT INTO disputes (created_at, channel, chat_id, user_hash, lang, sha256, kind, verdict, rule_row, "
+                "signals_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (now().isoformat(), channel, chat_id, user_hash, lang, sha256, kind, verdict, rule_row,
+                 json.dumps(signals, ensure_ascii=False)),
+            )
+            return cur.lastrowid, True
+
+    def disputes(self) -> list[sqlite3.Row]:
+        """Open disputes first, oldest first; then resolved ones, newest first."""
+        with self._db() as db:
+            return db.execute(
+                "SELECT * FROM disputes ORDER BY status != 'open', "
+                "CASE WHEN status = 'open' THEN created_at END ASC, resolved_at DESC"
+            ).fetchall()
+
+    def dispute(self, dispute_id: int) -> sqlite3.Row | None:
+        with self._db() as db:
+            return db.execute("SELECT * FROM disputes WHERE id = ?", (dispute_id,)).fetchone()
+
+    def resolve_dispute(self, dispute_id: int, status: str, reviewer: str, note: str) -> bool:
+        with self._db() as db:
+            cur = db.execute(
+                "UPDATE disputes SET status = ?, reviewer = ?, note = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
+                (status, reviewer, note, now().isoformat(), dispute_id),
+            )
+            return cur.rowcount == 1
+
+    def forget_dispute_chat(self, dispute_id: int) -> None:
+        with self._db() as db:
+            db.execute("UPDATE disputes SET chat_id = NULL WHERE id = ?", (dispute_id,))
+
     def record_check(self, kind: str, channel: str, verdict: str) -> None:
         with self._db() as db:
             db.execute(
@@ -651,6 +724,7 @@ class Store:
                 "by_channel": grouped("SELECT channel, COUNT(*) FROM checks GROUP BY channel"),
                 "by_verdict": grouped("SELECT verdict, COUNT(*) FROM checks GROUP BY verdict"),
                 "feedback": grouped("SELECT vote, COUNT(*) FROM feedback GROUP BY vote"),
+                "disputes": grouped("SELECT status, COUNT(*) FROM disputes GROUP BY status"),
                 "feedback_by_verdict": {
                     (r[0], r[1]): r[2]
                     for r in db.execute("SELECT verdict, vote, COUNT(*) FROM feedback GROUP BY verdict, vote")

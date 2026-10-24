@@ -107,15 +107,17 @@ def test_every_verdict_has_feedback_buttons(intake):
 def test_feedback_stores_only_hash_verdict_and_vote(intake, store):
     say(intake, "YES")
     data = next(d for _, d in say(intake, TEXTS["T1"])[-1].buttons if d.startswith("fb:d:"))
-    [thanks] = say(intake, data, callback_id="cb1", message_id=7)
+    thanks, ask = say(intake, data, callback_id="cb1", message_id=7)  # "Not helpful" then asks if it was genuine
     assert thanks.toast and str(thanks) == "Thank you for your feedback."
+    assert str(ask) == "Is this message actually genuine?"
     with store._db() as db:
         rows = [dict(r) for r in db.execute("SELECT * FROM feedback")]
         columns = [c["name"] for c in db.execute("PRAGMA table_info(feedback)")]
-    assert columns == ["id", "sha256", "verdict", "vote"]
+    # Only the hash, the verdict and the vote; "note" holds a line only if the person chooses to write one.
+    assert columns == ["id", "sha256", "verdict", "vote", "note"]
     from app.pipeline import sha256_text
 
-    assert rows == [{"id": 1, "sha256": sha256_text(TEXTS["T1"]), "verdict": "likely_fake", "vote": "not_helpful"}]
+    assert rows == [{"id": 1, "sha256": sha256_text(TEXTS["T1"]), "verdict": "likely_fake", "vote": "not_helpful", "note": None}]
 
 
 def test_bad_feedback_data_is_ignored(intake, store):

@@ -7,10 +7,12 @@ because notice text and extracted fields come from scammers.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -43,6 +45,9 @@ class Console:
     reviewers: tuple[str, ...]
     password: str | None
     secret: bytes
+    # Sends a dispute outcome to the person: (channel, chat_id, text). None when no bot is set up.
+    notify: Callable[[str, str, str], None] | None = None
+    disputed_csv: Path = Path(__file__).resolve().parent.parent / "data/adversarial/disputed.csv"
 
     @property
     def enabled(self) -> bool:
@@ -57,9 +62,19 @@ class Console:
 def console_deps() -> Console:
     store = Store(settings.data_dir / "trinetra.db")
     secret = hashlib.sha256(f"console:{settings.user_id_salt}:{settings.reviewer_password}".encode()).digest()
+    notify = None
+    if settings.telegram_bot_token:
+        from app.channels.telegram import TelegramAPI
+
+        api = TelegramAPI(settings.telegram_bot_token)
+
+        def notify(channel: str, chat_id: str, text: str) -> None:
+            if channel == "telegram":
+                api.send_message(chat_id, text)
+
     return Console(
         store, EvidenceStore(settings.data_dir / "evidence"), settings.data_dir / "packets",
-        settings.reviewers, settings.reviewer_password, secret,
+        settings.reviewers, settings.reviewer_password, secret, notify,
     )
 
 
@@ -92,8 +107,10 @@ def check_csrf(c: Console, request: Request, token: str) -> None:
 
 def page(title: str, body: str, user: str | None = None) -> HTMLResponse:
     """Reviewer-zone page, marked "Restricted: reviewers only"."""
-    nav = [("/console", "Cases"), ("/console/stats", "Stats"), ("/console/audit", "Audit log")] if user else []
-    current = {"Audit log": "/console/audit", "Usage": "/console/stats"}.get(title, "/console")
+    nav = [("/console", "Cases"), ("/console/disputes", "Disputes"), ("/console/stats", "Stats"),
+           ("/console/audit", "Audit log")] if user else []
+    current = {"Audit log": "/console/audit", "Usage": "/console/stats", "Disputes": "/console/disputes"}.get(
+        title, "/console")
     return ui.layout(title, body, zone="reviewer", nav=nav, current=current,
                      user=user, logout="/console/logout" if user else None)
 
@@ -464,6 +481,100 @@ def evidence_file(report_id: int, user: str = Depends(require_user), c: Console 
     return Response(data, media_type=CONTENT_TYPES[path.suffix], headers=headers)
 
 
+# --- disputes -------------------------------------------------------------------
+
+DISPUTE_ACTIONS = {"confirmed_genuine": "Confirm genuine", "kept": "Keep verdict"}
+DISPUTE_STATUS = {"open": "Open", "confirmed_genuine": "Confirmed genuine", "kept": "Verdict kept"}
+DISPUTED_COLUMNS = ["dispute_id", "added_at", "kind", "verdict", "rule_row", "signal_codes", "sha256", "reviewer", "note"]
+
+
+@router.get("/disputes", response_class=HTMLResponse)
+def disputes_page(request: Request, user: str = Depends(require_user), c: Console = Depends(console_deps)) -> HTMLResponse:
+    """People who said a verdict was wrong. A reviewer decides; rules never change on their own."""
+    token = csrf_token(c, request)
+    items = []
+    for d in c.store.disputes():
+        signals = "".join(f'<li><span class="mono">{escape(code)}</span> · {escape(strength)}: {escape(reason)}</li>'
+                          for code, strength, reason in json.loads(d["signals_json"]))
+        head = (f'<div class="card-title"><h2>Dispute {d["id"]}</h2><span class="muted small">'
+                f'{escape(DISPUTE_STATUS.get(d["status"], d["status"]))} · {escape(d["channel"])} · {escape(d["kind"])} · '
+                f'opened {_age(d["created_at"])}</span></div>'
+                f'<p>Our verdict: {ui.badge(d["verdict"])} <span class="mono small">{escape(d["rule_row"] or "")}</span>'
+                f' · <span class="mono small">{escape(d["sha256"][:16])}</span></p>'
+                f'<ul class="small">{signals or "<li>No signals fired.</li>"}</ul>')
+        if d["status"] == "open":
+            buttons = "".join(f'<button class="btn{"" if k == "kept" else " btn-ghost"}" name="action" value="{k}">{label}'
+                              "</button>" for k, label in DISPUTE_ACTIONS.items())
+            tail = (f'<form method="post" action="/console/dispute/{d["id"]}/resolve">'
+                    f'<input type="hidden" name="csrf" value="{token}">'
+                    '<label class="field">Note (required)<input name="note" maxlength="300" required></label>'
+                    f'<div class="actions">{buttons}</div></form>')
+        else:
+            tail = (f'<p class="small">Decided by <strong>{escape(d["reviewer"] or "")}</strong> '
+                    f'{_age(d["resolved_at"])}: {escape(d["note"] or "")}</p>')
+        items.append(f'<section class="card">{head}{tail}</section>')
+    open_count = sum(1 for d in c.store.disputes() if d["status"] == "open")
+    body = (
+        '<div class="page-head"><div><p class="eyebrow">Review console</p><h1>Disputes</h1></div>'
+        f'<p class="muted small">{open_count} open. People who said a message was genuine after we flagged it. '
+        "We keep the verdict and signals, not the message. Confirm genuine adds the case to "
+        "data/adversarial/disputed.csv for the team; it never changes the rules by itself.</p></div>"
+        + ("".join(items) or '<section class="card"><p class="empty">No disputes yet.</p></section>')
+    )
+    return page("Disputes", body, user)
+
+
+@router.post("/dispute/{dispute_id}/resolve")
+def resolve_dispute(
+    dispute_id: int,
+    request: Request,
+    action: str = Form(...),
+    note: str = Form(""),
+    csrf: str = Form(""),
+    user: str = Depends(require_user),
+    c: Console = Depends(console_deps),
+) -> Response:
+    check_csrf(c, request, csrf)
+    note = note.strip()[:300]
+    if action not in DISPUTE_ACTIONS:
+        raise HTTPException(400, "Unknown action")
+    if not note:
+        raise HTTPException(400, "A note is required")
+    d = c.store.dispute(dispute_id)
+    if d is None:
+        raise HTTPException(404)
+    if not c.store.resolve_dispute(dispute_id, action, user, note):
+        return RedirectResponse("/console/disputes", status_code=303)  # already decided
+    c.store.audit(user, f"dispute_{action}", f"dispute={dispute_id}")
+    if action == "confirmed_genuine":
+        _add_disputed_row(c, d, user, note)
+    if d["chat_id"] and c.notify:
+        from app.intake import DISPUTE_OUTCOME
+
+        try:
+            c.notify(d["channel"], d["chat_id"], DISPUTE_OUTCOME[action][d["lang"] if d["lang"] == "hi" else "en"])
+        except Exception as exc:  # noqa: BLE001 - the decision stands; the team can follow up
+            log.warning("dispute %s: could not message the user (%s)", dispute_id, type(exc).__name__)
+            c.store.audit(user, "dispute_notify_failed", f"dispute={dispute_id}")
+        else:
+            c.store.audit(user, "dispute_user_notified", f"dispute={dispute_id}")
+            c.store.forget_dispute_chat(dispute_id)
+    return RedirectResponse("/console/disputes", status_code=303)
+
+
+def _add_disputed_row(c: Console, d, reviewer: str, note: str) -> None:
+    """Append to the team's list of confirmed-genuine items. Hash, verdict and signal codes only, never the message."""
+    path = c.disputed_csv
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(DISPUTED_COLUMNS)
+        w.writerow([d["id"], now().isoformat(timespec="seconds"), d["kind"], d["verdict"], d["rule_row"] or "",
+                    " ".join(code for code, _, _ in json.loads(d["signals_json"])), d["sha256"], reviewer, note])
+
+
 @router.get("/audit", response_class=HTMLResponse)
 def audit_page(user: str = Depends(require_user), c: Console = Depends(console_deps)) -> HTMLResponse:
     entries = c.store.audit_entries()
@@ -535,6 +646,8 @@ def stats_page(user: str = Depends(require_user), c: Console = Depends(console_d
   <div class="kpi"><span class="n">{helpful}</span><span class="l">Helpful</span></div>
   <div class="kpi"><span class="n">{unhelpful}</span><span class="l">Not helpful</span></div>
   <div class="kpi"><span class="n">{f"{round(100 * helpful / votes)}%" if votes else "—"}</span><span class="l">Found it helpful</span></div>
+  <div class="kpi{" attn" if s["disputes"].get("open") else ""}"><span class="n">{s["disputes"].get("open", 0)}</span><span class="l"><a href="/console/disputes">Open disputes</a></span></div>
+  <div class="kpi"><span class="n">{s["disputes"].get("confirmed_genuine", 0) + s["disputes"].get("kept", 0)}</span><span class="l">Resolved disputes</span></div>
 </div>
 <section class="card"><h2>Checks per hour, last 24 hours (UTC)</h2><div class="hours">{bars}</div></section>
 <div class="layout-2">

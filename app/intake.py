@@ -27,6 +27,7 @@ from app import pipeline, reply
 from app.config import ENGINE_VERSION
 from app.evidence import EXTENSIONS, EvidenceStore, MediaDir, sha256_of
 from app.extract import ocr
+from app.extract.mask import mask_text
 from app.models import Kind, Result, Verdict
 from app.samples import sample_paths
 from app.store import NewReport, Store, report_payees
@@ -79,15 +80,42 @@ SAMPLES_INTRO = {
 }
 SAMPLE_CAPTION = {"en": "Forward this back to me to check it", "hi": "जाँच के लिए इसे मुझे वापस फ़ॉरवर्ड करें"}
 FEEDBACK_THANKS = {"en": "Thank you for your feedback.", "hi": "आपकी राय के लिए धन्यवाद।"}
+# After "Not helpful": a person can say the message was genuine. A reviewer then decides; rules never change on their own.
+DISPUTE_ASK = {"en": "Is this message actually genuine?", "hi": "क्या यह संदेश असल में असली है?"}
+DISPUTE_THANKS = {
+    "en": "Thanks. A person will review this. Until then, confirm through an official number before paying.",
+    "hi": "धन्यवाद। कोई व्यक्ति इसकी समीक्षा करेगा। तब तक, भुगतान से पहले किसी आधिकारिक नंबर से पुष्टि करें।",
+}
+NOTE_ASK = {"en": "What was wrong? Reply in one line if you like. It's optional.",
+            "hi": "क्या गलत था? चाहें तो एक लाइन में बताएँ। यह ज़रूरी नहीं है।"}
+NOTE_THANKS = {"en": "Thank you. We've noted it.", "hi": "धन्यवाद। हमने इसे नोट कर लिया है।"}
+NOTE_MAX_CHARS = 280
+# Sent by the review console when a reviewer decides a dispute.
+DISPUTE_OUTCOME = {
+    "confirmed_genuine": {
+        "en": "Update on the message you said was genuine: a person reviewed it and agrees it looks genuine. "
+        "Thank you, this helps us improve. Still, confirm through an official number before paying.",
+        "hi": "जिस संदेश को आपने असली बताया था, उस पर अपडेट: एक व्यक्ति ने इसकी समीक्षा की और सहमत हैं कि यह असली लगता है। "
+        "धन्यवाद, इससे हमें सुधार में मदद मिलती है। फिर भी, भुगतान से पहले किसी आधिकारिक नंबर से पुष्टि करें।",
+    },
+    "kept": {
+        "en": "Update on the message you said was genuine: a person reviewed it and kept our warning. Please "
+        "confirm through an official number before paying anything.",
+        "hi": "जिस संदेश को आपने असली बताया था, उस पर अपडेट: एक व्यक्ति ने इसकी समीक्षा की और हमारी चेतावनी बनी रहेगी। "
+        "कुछ भी भुगतान करने से पहले किसी आधिकारिक नंबर से पुष्टि करें।",
+    },
+}
 
 LABELS = {
     "en": {"agree_check": "Agree and check", "agree": "Agree", "privacy": "Privacy details",
            "sample": "Try a sample", "help": "Help", "why": "Why?", "report": "Report",
            "paid": "I already paid", "helpful": "Helpful", "not_helpful": "Not helpful",
+           "genuine_yes": "Yes, it's genuine", "genuine_no": "No, other reason",
            "report_yes": "Yes, report it", "report_no": "Cancel", "other_lang": "हिन्दी"},
     "hi": {"agree_check": "सहमत हूँ, जाँचें", "agree": "सहमत हूँ", "privacy": "गोपनीयता विवरण",
            "sample": "नमूना आज़माएँ", "help": "मदद", "why": "क्यों?", "report": "रिपोर्ट करें",
            "paid": "मैंने भुगतान कर दिया", "helpful": "मददगार", "not_helpful": "मददगार नहीं",
+           "genuine_yes": "हाँ, यह असली है", "genuine_no": "नहीं, कोई और कारण",
            "report_yes": "हाँ, रिपोर्ट करें", "report_no": "रद्द करें", "other_lang": "English"},
 }
 # Verdicts as one letter, so a button's data fits Telegram's 64 bytes together with the item's hash.
@@ -104,8 +132,7 @@ MESSAGES = {
         "deleted": "Your data has been erased. Items already in an approved evidence packet are kept, because they "
         "are evidence in a reported case. Forward anything to check it again.",
         "checking": "Checking… this takes up to a minute.",
-        "media_soon": "Checking voice notes and videos is coming soon. For now, send a photo or PDF of the notice, "
-        "or paste the text.",
+        "media_soon": "We can't check voice or video yet. Please send the text or a screenshot.",
         "unsupported": "We can check photos (JPG or PNG) and PDFs. Please send the notice in one of those formats.",
         "too_large": "This file is too large. Send a photo under 5 MB or a PDF under 100 MB.",
         "report_confirm": "Report this to the Trinetra team? Your file will be kept as evidence. Reply YES to confirm.",
@@ -127,7 +154,7 @@ MESSAGES = {
         "deleted": "आपका डेटा मिटा दिया गया है। जो फ़ाइलें किसी स्वीकृत साक्ष्य पैकेट में हैं, वे रखी जाती हैं, क्योंकि वे "
         "किसी रिपोर्ट किए गए मामले में साक्ष्य हैं। किसी भी चीज़ की फिर से जाँच के लिए उसे फ़ॉरवर्ड करें।",
         "checking": "जाँच हो रही है… इसमें एक मिनट तक लग सकता है।",
-        "media_soon": "वॉइस नोट और वीडियो की जाँच जल्द आ रही है। अभी के लिए नोटिस की फ़ोटो या PDF भेजें, या टेक्स्ट पेस्ट करें।",
+        "media_soon": "हम अभी वॉइस या वीडियो की जाँच नहीं कर सकते। कृपया टेक्स्ट या स्क्रीनशॉट भेजें।",
         "unsupported": "हम फ़ोटो (JPG या PNG) और PDF की जाँच कर सकते हैं। कृपया नोटिस इनमें से किसी रूप में भेजें।",
         "too_large": "यह फ़ाइल बहुत बड़ी है। 5 MB से छोटी फ़ोटो या 100 MB से छोटी PDF भेजें।",
         "report_confirm": "इसे Trinetra टीम को रिपोर्ट करें? आपकी फ़ाइल साक्ष्य के रूप में रखी जाएगी। पुष्टि के लिए YES भेजें।",
@@ -190,6 +217,7 @@ class Answer:
     sender: str  # reply.sender_group
     reviewed: bool
     verify: dict  # language -> where to check at the source
+    rule_row: str = ""
 
 
 YES = {"YES", "Y", "हाँ", "हां"}
@@ -214,6 +242,21 @@ class Inbound:
     fetch: Callable[[], bytes] | None = None  # downloads the media; called only after consent and rate limits
     callback_id: str | None = None  # set when this is a button press; its data is in `text`
     message_id: int | None = None  # the message whose button was pressed
+
+
+AV_MEDIA = ("voice", "audio", "video", "video_note")
+
+
+def is_voice_or_video(msg: Inbound) -> bool:
+    return msg.media in AV_MEDIA or (msg.media == "document" and (msg.mime or "").startswith(("audio/", "video/")))
+
+
+def sniff_av(data: bytes) -> bool:
+    """Audio or video by magic bytes: OGG, MP3, M4A/MP4/MOV, WAV, WebM/MKV, FLAC, AMR."""
+    head = data[:16]
+    return (head.startswith((b"OggS", b"ID3", b"\x1aE\xdf\xa3", b"fLaC", b"#!AMR"))
+            or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0)
+            or head[4:8] == b"ftyp" or (head.startswith(b"RIFF") and head[8:12] in (b"WAVE", b"AVI ")))
 
 
 def declared_type(msg: Inbound) -> str | None:
@@ -281,13 +324,15 @@ class Intake:
         say = MESSAGES[lang]
 
         # Button presses. They never cancel a pending report.
-        if text.startswith(("fb:", "why:", "rep:", "repy:", "lang:")) or text in ("repn", "paid"):
+        if text.startswith(("fb:", "why:", "rep:", "repy:", "lang:", "dsp:")) or text in ("repn", "paid"):
             self._button(uid, user, text, lang, msg, send)
             return
 
         if user["pending"]:
             # Any reply other than YES cancels the pending report and is handled as usual.
             self.store.set_pending(uid, None)
+            if user["pending"].startswith("note:") and self._take_note(user["pending"][5:], msg, command, lang, send):
+                return
             if command in YES and user["pending"].startswith("report:"):
                 self._report(uid, int(user["pending"].split(":", 1)[1]), user["lang"], lang, say, send)
                 return
@@ -319,10 +364,14 @@ class Intake:
         elif msg.callback_id:
             # A button's data is never something to check, even an old or unknown button.
             log.info("ignored a button press with unknown data")
+        elif is_voice_or_video(msg):
+            # Voice and video checks are not built yet: never crash, say so, and count it as "could not check".
+            self.store.record_check(Kind.VOICE.value, msg.channel, Verdict.COULD_NOT_CHECK.value)
+            send(say["media_soon"])
         elif msg.media in ("photo", "document"):
             self._file(uid, chosen_lang(user["lang"], app_lang), lang, msg, say, send)
         elif msg.media:
-            send(say["media_soon"])
+            send(say["unsupported"])
         elif text:
             text = msg.text[:MAX_TEXT_CHARS]
             sha = pipeline.sha256_text(text)
@@ -382,6 +431,16 @@ class Intake:
         say = MESSAGES[lang]
         if data.startswith("fb:"):
             self._feedback(data, lang, send)
+            if data.startswith("fb:d:"):  # "Not helpful": was the message actually genuine?
+                code, key = data.split(":")[2:4]
+                t = LABELS[lang]
+                send(Out(DISPUTE_ASK[lang], rows=[[(t["genuine_yes"], f"dsp:y:{code}:{key}"),
+                                                  (t["genuine_no"], f"dsp:n:{key}")]]))
+        elif data.startswith("dsp:y:"):
+            self._dispute(uid, msg, data, lang, send)
+        elif data.startswith("dsp:n:"):
+            self.store.set_pending(uid, f"note:{data[6:]}")
+            send(NOTE_ASK[lang])
         elif data == "paid":
             send(reply.ALREADY_PAID[lang])
         elif data.startswith("why:"):
@@ -412,6 +471,39 @@ class Intake:
             self.store.set_pending(uid, None)
             send(Out(say["report_cancelled"], toast=True))
 
+    def _dispute(self, uid: str, msg: Inbound, data: str, lang: str, send: Callable[[str], None]) -> None:
+        """"Yes, it's genuine": open a dispute with the verdict and signals. No media is kept unless it was reported."""
+        parts = data.split(":")
+        if len(parts) != 4 or not parts[3].isalnum():
+            return
+        code, key = parts[2], parts[3]
+        verdicts = {v: k for k, v in VERDICT_CODES.items()}
+        answer = self._answer_for(uid, key)
+        item = self.store.user_item(uid, key)
+        if answer is None and item is None:
+            send(MESSAGES[lang]["why_expired"])
+            return
+        verdict = answer.verdict.value if answer else verdicts.get(code, "cannot_verify")
+        dispute_id, created = self.store.add_dispute(
+            channel=msg.channel, chat_id=msg.chat_id, user_hash=uid, lang=lang,
+            sha256=item["sha256"] if item else key, kind=(answer.kind.value if answer else item["kind"]),
+            verdict=verdict, rule_row=answer.rule_row if answer else "",
+            signals=[[s.code, s.strength.value, s.reason_en] for s in (answer.signals if answer else [])],
+        )
+        if created:
+            self.store.audit("user", "dispute_opened", f"dispute={dispute_id} verdict={verdict}")
+        send(DISPUTE_THANKS[lang])
+
+    def _take_note(self, key: str, msg: Inbound, command: str, lang: str, send: Callable[[str], None]) -> bool:
+        """The optional one line after "No, other reason". Anything else is handled as a normal message."""
+        text = (msg.text or "").strip()
+        if (msg.media or msg.callback_id or not text or "\n" in text or len(text) > NOTE_MAX_CHARS
+                or command in YES | HINDI | ENGLISH | {"DELETE", "1", "2", "HELP", "START"}):
+            return False
+        self.store.add_feedback_note(key, mask_text(text))
+        send(NOTE_THANKS[lang])
+        return True
+
     def _answer_for(self, uid: str, key: str) -> Answer | None:
         """A recent verdict for this user's item: from memory, or rebuilt from the hash cache."""
         with self._lock:
@@ -423,13 +515,13 @@ class Intake:
             return None
         sha = item["sha256"]
         if pipeline.is_known_fake(sha, known=self.store.is_known_fake):
-            return Answer(Verdict.LIKELY_FAKE, [], Kind(item["kind"]), "general", True, {})
+            return Answer(Verdict.LIKELY_FAKE, [], Kind(item["kind"]), "general", True, {}, "R1")
         cached = self.store.cached_result(sha, ENGINE_VERSION)
         if cached is None:
             return None
         verify = {lg: reply.verify_line(cached.sender_type, cached.sender_id, lg) for lg in ("en", "hi")}
         return Answer(cached.verdict, cached.signals, cached.kind, reply.sender_group(cached.sender_type, cached.sender_id),
-                      cached.rule_row == "R1", verify)
+                      cached.rule_row == "R1", verify, cached.rule_row)
 
     def _send_answer(self, key: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
         text = reply.short(answer.verdict, answer.signals, answer.kind, lang, answer.sender, answer.reviewed)
@@ -506,7 +598,7 @@ class Intake:
             reply_lang = lang or (report["lang"] if report else None) or fallback_lang
             log.info("known fake kind=%s", kind.value)
             self.store.record_check(kind.value, channel, Verdict.LIKELY_FAKE.value)
-            self._deliver(uid, sha, Answer(Verdict.LIKELY_FAKE, [], kind, group, True, {}), reply_lang, send)
+            self._deliver(uid, sha, Answer(Verdict.LIKELY_FAKE, [], kind, group, True, {}, "R1"), reply_lang, send)
             return
 
         cached = self.store.cached_result(sha, ENGINE_VERSION)
@@ -516,7 +608,8 @@ class Intake:
             reply_lang = lang or cached.lang or fallback_lang
             verify = {lg: reply.verify_line(cached.sender_type, cached.sender_id, lg) for lg in ("en", "hi")}
             self.store.record_check(kind.value, channel, cached.verdict.value)
-            answer = Answer(cached.verdict, cached.signals, cached.kind, group, cached.rule_row == "R1", verify)
+            answer = Answer(cached.verdict, cached.signals, cached.kind, group, cached.rule_row == "R1", verify,
+                            cached.rule_row)
             self._deliver(uid, sha, answer, reply_lang, send)
             return
 
@@ -531,7 +624,8 @@ class Intake:
         log.info("checked kind=%s verdict=%s row=%s", result.kind.value, result.verdict.value, result.rule_row)
         self.store.record_check(kind.value, channel, result.verdict.value)
         group = reply.sender_group(result.fields.sender_type, result.fields.sender_id)
-        answer = Answer(result.verdict, result.signals, result.kind, group, result.reviewed, result.verify)
+        answer = Answer(result.verdict, result.signals, result.kind, group, result.reviewed, result.verify,
+                        result.rule_row)
         self._deliver(uid, sha, answer, result.lang, send)
 
     def _deliver(self, uid: str, sha: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
