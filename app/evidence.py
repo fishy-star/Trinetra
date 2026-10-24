@@ -1,7 +1,9 @@
 """Write-once storage: reported files (the evidence vault) and short-lived media.
 
-Offline this is an append-only local directory: a file is created once, made read-only, and
-checked against its SHA-256 on every read. In AWS it becomes S3 with Object Lock.
+Offline this is an append-only local directory: a file is created once, never overwritten, and
+checked against its SHA-256 on every read. It is locked (made read-only, and in AWS given an
+S3 Object Lock retention) only when a reviewer approves its case. Until then a user's DELETE
+can still erase it.
 """
 
 from __future__ import annotations
@@ -26,13 +28,21 @@ def sha256_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def write_once(path: Path, data: bytes) -> None:
+READ_ONLY = stat.S_IRUSR | stat.S_IRGRP
+
+
+class LockedError(Exception):
+    """The file is locked as evidence in an approved case and cannot be erased."""
+
+
+def write_once(path: Path, data: bytes, lock: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "xb") as f:  # "x": fail rather than overwrite
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
-    path.chmod(stat.S_IRUSR | stat.S_IRGRP)
+    if lock:
+        path.chmod(READ_ONLY)
 
 
 class EvidenceStore:
@@ -50,8 +60,19 @@ class EvidenceStore:
         if path.exists():
             self.get(path)  # verifies the stored copy
             return path
-        write_once(path, data)
+        write_once(path, data, lock=False)
         return path
+
+    def lock(self, path: Path) -> bool:
+        """Lock a file once its case is approved. Returns False if it was already locked."""
+        if self.is_locked(path):
+            return False
+        path.chmod(READ_ONLY)
+        return True
+
+    @staticmethod
+    def is_locked(path: Path) -> bool:
+        return not path.stat().st_mode & stat.S_IWUSR
 
     def get(self, path: Path) -> bytes:
         data = path.read_bytes()
@@ -60,10 +81,12 @@ class EvidenceStore:
         return data
 
     def erase(self, path: Path) -> None:
-        """Only for a user's DELETE of a report that is not in an approved packet. The caller audits it."""
-        if path.exists():
-            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-            path.unlink()
+        """Only for a user's DELETE of a report whose case is not approved. The caller audits it."""
+        if not path.exists():
+            return
+        if self.is_locked(path):
+            raise LockedError(path.name)
+        path.unlink()
 
 
 class MediaDir:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -87,6 +87,14 @@ CREATE TABLE IF NOT EXISTS reviews (
     action      TEXT NOT NULL,
     note        TEXT,
     at          TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS known_fakes (
+    kind        TEXT NOT NULL,               -- "hash" or "payee"
+    value       TEXT NOT NULL,               -- SHA-256, or a normalized payee
+    case_id     INTEGER NOT NULL REFERENCES cases (id),
+    added_at    TEXT NOT NULL,
+    added_by    TEXT NOT NULL,
+    PRIMARY KEY (kind, value, case_id)
 );
 CREATE TABLE IF NOT EXISTS audit_log (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,11 +191,14 @@ class Store:
         with self._db() as db:
             db.execute("UPDATE users SET pending = ? WHERE user_hash = ?", (pending, user_hash))
 
-    def delete_user(self, user_hash: str) -> tuple[list[str], list[str]]:
+    def delete_user(
+        self, user_hash: str, is_locked: Callable[[str], bool] = lambda path: False
+    ) -> tuple[list[str], list[str]]:
         """Remove the user's rows. Returns (media paths, evidence paths) no longer referenced, for the caller to delete.
 
-        Reports in an approved case stay as evidence, unlinked from the user. Cached results
-        that no other user's item points to are removed.
+        Reports in an approved case, or whose evidence is locked because the case was approved
+        before, stay as evidence, unlinked from the user. Cached results that no other user's
+        item points to are removed.
         """
         with self._db() as db:
             items = db.execute("SELECT sha256, media_path FROM items WHERE user_hash = ?", (user_hash,)).fetchall()
@@ -200,7 +211,7 @@ class Store:
             ).fetchall()
             evidence: list[str] = []
             for r in reports:
-                if r["status"] == "approved_fake":
+                if r["status"] == "approved_fake" or is_locked(r["evidence_path"]):
                     db.execute("UPDATE reports SET user_hash = NULL WHERE id = ?", (r["id"],))
                     continue
                 db.execute("DELETE FROM reports WHERE id = ?", (r["id"],))
@@ -381,6 +392,7 @@ class Store:
         remaining = db.execute("SELECT fields_json FROM reports WHERE case_id = ?", (case_id,)).fetchall()
         db.execute("DELETE FROM case_payees WHERE case_id = ?", (case_id,))
         if not remaining:
+            db.execute("DELETE FROM known_fakes WHERE case_id = ?", (case_id,))
             db.execute("DELETE FROM reviews WHERE case_id = ?", (case_id,))
             db.execute("DELETE FROM cases WHERE id = ?", (case_id,))
             return
@@ -431,6 +443,28 @@ class Store:
             )
             db.execute(
                 "UPDATE cases SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?", (status, at, reviewer, case_id)
+            )
+
+    # --- known fakes ------------------------------------------------------------
+
+    def add_known_fakes(self, case_id: int, reviewer: str, hashes: list[str], payees: list[str]) -> None:
+        at = now().isoformat()
+        rows = [("hash", h, case_id, at, reviewer) for h in hashes]
+        rows += [("payee", normalize_payee(p), case_id, at, reviewer) for p in payees if normalize_payee(p)]
+        with self._db() as db:
+            db.executemany("INSERT OR IGNORE INTO known_fakes VALUES (?, ?, ?, ?, ?)", rows)
+
+    def remove_known_fakes(self, case_id: int) -> None:
+        """Undo a case's approval. Entries another approved case also confirmed stay."""
+        with self._db() as db:
+            db.execute("DELETE FROM known_fakes WHERE case_id = ?", (case_id,))
+
+    def is_known_fake(self, sha256: str, payees: list[str] = ()) -> bool:
+        keys = [("hash", sha256)] + [("payee", normalize_payee(p)) for p in payees if normalize_payee(p)]
+        with self._db() as db:
+            return any(
+                db.execute("SELECT 1 FROM known_fakes WHERE kind = ? AND value = ? LIMIT 1", key).fetchone()
+                for key in keys
             )
 
     # --- audit log ------------------------------------------------------------

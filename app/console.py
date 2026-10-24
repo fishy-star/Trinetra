@@ -23,7 +23,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app import packet, registry
+from app import packet
 from app.config import settings
 from app.evidence import CONTENT_TYPES, EvidenceStore, IntegrityError, write_once
 from app.store import Store
@@ -314,17 +314,20 @@ def review(
         raise HTTPException(400, "Unknown action")
     case = _case_or_404(c, case_id)
     note = note.strip()[:300]
-    hashes = sorted({r["sha256"] for r in c.store.case_reports(case_id)})
-    payees = c.store.case_payees(case_id)
+    reports = c.store.case_reports(case_id)
 
     c.store.review(case_id, user, action, note)
     c.store.audit(user, f"review_{action}", f"case={case_id}")
     if action == "approve_fake":
-        registry.update_known_fakes(add_hashes=hashes, add_payees=payees)
+        c.store.add_known_fakes(case_id, user, sorted({r["sha256"] for r in reports}), c.store.case_payees(case_id))
+        # Evidence is locked only now. Before approval a user's DELETE could still erase it.
+        locked = sum(c.evidence.lock(Path(r["evidence_path"])) for r in reports if Path(r["evidence_path"]).exists())
+        c.store.audit(user, "evidence_locked", f"case={case_id} files={locked}")
         _make_packet(c, case_id)
     elif case["status"] == "approved_fake":
         # Reversing an approval takes the case's files and payees out of the known fakes again.
-        registry.update_known_fakes(remove_hashes=hashes, remove_payees=payees)
+        # Evidence stays locked: in AWS an Object Lock retention cannot be shortened.
+        c.store.remove_known_fakes(case_id)
         c.store.audit(user, "known_fakes_removed", f"case={case_id}")
     # Cached answers were given before this decision; drop them so the next forward is answered afresh.
     c.store.clear_results()

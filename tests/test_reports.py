@@ -13,8 +13,7 @@ from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
 from app import console as console_mod
-from app import registry
-from app.evidence import EvidenceStore, IntegrityError
+from app.evidence import EvidenceStore, IntegrityError, LockedError
 from app.intake import MESSAGES, Inbound, Intake
 from app.jobs import purge_media
 from app.main import app
@@ -66,7 +65,7 @@ def test_report_flow_stores_evidence_and_opens_a_case(intake, tmp_path):
     sha = sha256_bytes(F1_PNG)
     evidence = tmp_path / "evidence" / f"{sha}.png"
     assert evidence.read_bytes() == F1_PNG
-    assert not evidence.stat().st_mode & stat.S_IWUSR  # read-only once written
+    assert not intake.evidence.is_locked(evidence)  # locked only when a reviewer approves the case
 
     [report] = intake.store.case_reports(1)
     assert report["sha256"] == sha and report["size"] == len(F1_PNG) and report["verdict"] == "likely_fake"
@@ -212,19 +211,35 @@ def test_delete_keeps_approved_evidence_but_unlinks_the_user(intake, tmp_path):
 # --- evidence store ----------------------------------------------------------------------
 
 
-def test_evidence_is_write_once_and_verified(tmp_path):
+def test_evidence_is_create_once_and_verified(tmp_path):
     store = EvidenceStore(tmp_path)
     sha = sha256_bytes(b"notice")
     path = store.put(b"notice", sha, ".txt")
     assert store.put(b"notice", sha, ".txt") == path  # same bytes again: no-op
     with pytest.raises(IntegrityError):
         store.put(b"other", sha, ".txt")
-    with pytest.raises(PermissionError):
-        path.write_bytes(b"tampered")
-    path.chmod(0o600)
     path.write_bytes(b"tampered")
     with pytest.raises(IntegrityError):
         store.get(path)
+
+
+def test_evidence_is_locked_on_approval_and_cannot_then_be_erased(tmp_path):
+    store = EvidenceStore(tmp_path)
+    path = store.put(b"notice", sha256_bytes(b"notice"), ".txt")
+    assert store.lock(path) is True and store.lock(path) is False
+    assert not path.stat().st_mode & stat.S_IWUSR
+    with pytest.raises(PermissionError):
+        path.write_bytes(b"tampered")
+    with pytest.raises(LockedError):
+        store.erase(path)
+    assert path.exists()
+
+
+def test_unlocked_evidence_can_be_erased(tmp_path):
+    store = EvidenceStore(tmp_path)
+    path = store.put(b"notice", sha256_bytes(b"notice"), ".txt")
+    store.erase(path)
+    assert not path.exists()
 
 
 # --- console --------------------------------------------------------------------------
@@ -238,7 +253,7 @@ def console(intake, tmp_path):
     app.dependency_overrides[console_mod.console_deps] = lambda: deps
     console_mod._failed.clear()
     yield TestClient(app), deps
-    app.dependency_overrides.clear()
+    app.dependency_overrides.pop(console_mod.console_deps, None)
 
 
 def login(client):
@@ -283,7 +298,7 @@ def test_console_off_without_configuration(intake, tmp_path):
         resp = client.post("/console/login", data={"username": "", "password": ""}, follow_redirects=False)
         assert resp.status_code == 200
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(console_mod.console_deps, None)
 
 
 def test_cases_sorted_by_reports_and_case_page_shows_evidence(intake, console):
@@ -325,7 +340,7 @@ def test_review_needs_csrf_token(intake, console):
     assert intake.store.case(1)["status"] == "open"
 
 
-def test_approve_updates_known_fakes_and_makes_a_packet(intake, console, known_fakes):
+def test_approve_records_known_fakes_locks_evidence_and_makes_a_packet(intake, console):
     u = User(intake, "1")
     u.say(photo=F1_PNG)
     u.report()
@@ -338,8 +353,10 @@ def test_approve_updates_known_fakes_and_makes_a_packet(intake, console, known_f
     assert intake.store.case(1)["status"] == "approved_fake"
 
     sha = sha256_bytes(F1_PNG)
-    fakes = json.loads(known_fakes.read_text())
-    assert sha in fakes["hashes"] and "50200077118843" in fakes["payees"]
+    assert intake.store.is_known_fake(sha)
+    assert intake.store.is_known_fake("some-other-file", ["50200077118843"])
+    assert json.loads(registry_seed().read_text()) == {"hashes": [], "payees": []}  # the seed file is never written
+    assert intake.evidence.is_locked(Path(intake.store.case_reports(1)[0]["evidence_path"]))
 
     pdf = client.get("/console/case/1/packet.pdf")
     assert pdf.headers["content-type"] == "application/pdf"
@@ -356,18 +373,20 @@ def test_approve_updates_known_fakes_and_makes_a_packet(intake, console, known_f
     assert "user_hash" not in json.dumps(packet)
 
     actions = [a["action"] for a in intake.store.audit_entries()]
-    for expected in ("review_approve_fake", "packet_generated", "packet_download"):
+    for expected in ("review_approve_fake", "evidence_locked", "packet_generated", "packet_download"):
         assert expected in actions
 
 
-def test_mark_not_fake_after_approval_removes_known_fakes(intake, console, known_fakes):
+def test_mark_not_fake_after_approval_removes_known_fakes(intake, console):
     u = User(intake, "1")
     u.say(TEXTS["T1"])
     u.report()
     client = login(console[0])
     client.post("/console/case/1/review", data={"action": "approve_fake", "csrf": csrf(client, 1)})
+    assert intake.store.is_known_fake(sha256_text(TEXTS["T1"]))
     client.post("/console/case/1/review", data={"action": "not_fake", "csrf": csrf(client, 1)})
-    assert json.loads(known_fakes.read_text()) == {"hashes": [], "payees": []}
+    assert not intake.store.is_known_fake(sha256_text(TEXTS["T1"]), ["navdeep.kyc@ybl"])
+    assert intake.evidence.is_locked(Path(intake.store.case_reports(1)[0]["evidence_path"]))  # a lock is never lifted
     assert intake.store.case(1)["status"] == "not_fake"
     assert [r["action"] for r in intake.store.case_reviews(1)] == ["approve_fake", "not_fake"]
 
@@ -409,9 +428,49 @@ def test_forwarding_an_approved_fake_again_is_answered_at_once_as_reviewed(tmp_p
     assert calls == [1]  # only the first check ran OCR
 
 
-def test_same_payee_after_approval_is_r1_and_reviewed(intake, known_fakes):
-    registry.update_known_fakes(add_payees=["navdeep.kyc@ybl"])
+def test_same_payee_after_approval_is_r1_and_reviewed(intake):
     u = User(intake, "1")
-    out = u.say("Your account is blocked. Pay Rs 99 to NAVDEEP.KYC@ybl.")
+    u.say(TEXTS["T1"])
+    u.report()
+    intake.store.add_known_fakes(1, "asha", [], ["navdeep.kyc@ybl"])
+    out = User(intake, "2").say("Your account is blocked. Pay Rs 99 to NAVDEEP.KYC@ybl.")
     assert out[1].startswith("Likely fake")
     assert out[1].endswith("Reviewed by the Trinetra team.")
+
+
+def registry_seed() -> Path:
+    from app.registry import KNOWN_FAKES_PATH
+
+    return KNOWN_FAKES_PATH
+
+
+def test_known_fakes_survive_in_the_database_across_restarts(intake, tmp_path):
+    u = User(intake, "1")
+    u.say(TEXTS["T1"])
+    u.report()
+    intake.store.add_known_fakes(1, "asha", [sha256_text(TEXTS["T1"])], ["navdeep.kyc@ybl"])
+    assert Store(tmp_path / "t.db").is_known_fake(sha256_text(TEXTS["T1"]))
+
+
+def test_web_page_answers_from_approved_fakes(intake):
+    u = User(intake, "1")
+    u.say(TEXTS["T1"])
+    u.report()
+    intake.store.add_known_fakes(1, "asha", [], ["navdeep.kyc@ybl"])
+    from app import main
+
+    main.app.dependency_overrides[main.known_fakes_lookup] = lambda: intake.store.is_known_fake
+    body = TestClient(app).post("/api/check", json={"text": "Pay Rs 10 to navdeep.kyc@ybl now."}).json()
+    assert body["verdict"] == "likely_fake" and body["reply"].endswith("Reviewed by the Trinetra team.")
+
+
+def test_delete_keeps_evidence_locked_by_an_approval_that_was_later_reversed(intake, tmp_path):
+    u = User(intake, "1")
+    u.say(TEXTS["T1"])
+    u.report()
+    [report] = intake.store.case_reports(1)
+    intake.evidence.lock(Path(report["evidence_path"]))  # approved once...
+    intake.store.review(1, "asha", "not_fake")  # ...then reversed
+    assert u.say("DELETE") == [EN["deleted"]]
+    assert Path(report["evidence_path"]).exists()
+    assert intake.store.case_reports(1)[0]["user_hash"] is None

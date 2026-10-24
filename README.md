@@ -90,7 +90,7 @@ set -a; source .env; set +a
 uvicorn app.main:app --port 8000
 ```
 
-The bot and the web service share the database in `DATA_DIR`. Approving a case as fake adds its file hashes and payees to `data/registry/known_fakes.json` and writes a PDF + JSON evidence packet.
+The bot and the web service share the database in `DATA_DIR`. Approving a case as fake records its file hashes and payees as known fakes in the runtime database, locks its evidence files, and writes a PDF + JSON evidence packet. Until a case is approved, a user's `DELETE` still erases their report. `data/registry/known_fakes.json` is a read-only seed list that the app never writes.
 
 Polling and a webhook cannot run at the same time. The deployed service uses the webhook at `/telegram/webhook` instead, which is off until `TELEGRAM_WEBHOOK_SECRET` is set.
 

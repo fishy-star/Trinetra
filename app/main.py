@@ -139,6 +139,12 @@ def _page(text: str = "", reply: str | None = None, lang: str = "") -> HTMLRespo
     )
 
 
+@lru_cache
+def known_fakes_lookup() -> pipeline.KnownFake:
+    """The web page answers from the same approved fakes as the bot."""
+    return Store(settings.data_dir / "trinetra.db").is_known_fake
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return _page()
@@ -146,7 +152,10 @@ def index() -> HTMLResponse:
 
 @app.post("/check", response_class=HTMLResponse)
 async def check_form(
-    text: str = Form(""), lang: str = Form(""), file: UploadFile | None = File(None)
+    text: str = Form(""),
+    lang: str = Form(""),
+    file: UploadFile | None = File(None),
+    known: pipeline.KnownFake = Depends(known_fakes_lookup),
 ) -> HTMLResponse:
     lang = lang if lang in ("en", "hi") else ""
     if file is not None and file.filename:
@@ -158,11 +167,11 @@ async def check_form(
         if len(data) > MAX_BYTES[kind]:
             return _page(text, say["too_large"], lang)
         # OCR blocks for about a second, so keep it off the event loop.
-        result = await run_in_threadpool(pipeline.check_file, data, lang=lang or None)
+        result = await run_in_threadpool(pipeline.check_file, data, lang=lang or None, known=known)
         return _page(text, result.reply, lang)
     if not text.strip():
         return _page(text, "Paste a message to check.", lang)
-    result = pipeline.check_text(text[:MAX_TEXT_CHARS], lang=lang or None)
+    result = pipeline.check_text(text[:MAX_TEXT_CHARS], lang=lang or None, known=known)
     return _page(text, result.reply, lang)
 
 
@@ -177,7 +186,8 @@ class CheckResponse(BaseModel):
 
 
 @app.post("/api/check")
-def check_api(req: CheckRequest) -> CheckResponse:
+def check_api(req: CheckRequest, known: pipeline.KnownFake = Depends(known_fakes_lookup)) -> CheckResponse:
     # Verdict and reply only: rule rows and signal codes stay internal so probing teaches nothing.
-    result = pipeline.check_text(req.text[:MAX_TEXT_CHARS], lang=req.lang if req.lang in ("en", "hi") else None)
+    lang = req.lang if req.lang in ("en", "hi") else None
+    result = pipeline.check_text(req.text[:MAX_TEXT_CHARS], lang=lang, known=known)
     return CheckResponse(verdict=result.verdict.value, reply=result.reply)

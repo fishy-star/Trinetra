@@ -177,7 +177,9 @@ class Intake:
             self.store.set_lang(uid, new)
             send(MESSAGES[new]["lang_set"])
         elif command == "DELETE":
-            media, evidence = self.store.delete_user(uid)
+            media, evidence = self.store.delete_user(
+                uid, is_locked=lambda p: Path(p).exists() and self.evidence.is_locked(Path(p))
+            )
             for path in media:
                 self.media.delete(Path(path))
             for path in evidence:
@@ -197,7 +199,7 @@ class Intake:
             sha = pipeline.sha256_text(text)
             reply_lang = user["lang"] or reply.detect_lang(text)
             if self._allowed(uid, say, send):
-                check = partial(self._check, text, kind=Kind.TEXT, sha256=sha, lang=reply_lang)
+                check = partial(self._check, text, kind=Kind.TEXT, sha256=sha, lang=reply_lang, known=self.store.is_known_fake)
                 self._run(uid, sha, Kind.TEXT, text.encode("utf-8"), EXTENSIONS["text"], reply_lang, say, send, check)
 
     def _allowed(self, uid: str, say: dict[str, str], send: Callable[[str], None]) -> bool:
@@ -236,7 +238,7 @@ class Intake:
             return
         sha = pipeline.sha256_bytes(data)
         # Without a language choice, the reply follows the notice's own language, falling back to the app's.
-        check = partial(self._check_file, data, sha256=sha, lang=pref, fallback_lang=lang)
+        check = partial(self._check_file, data, sha256=sha, lang=pref, fallback_lang=lang, known=self.store.is_known_fake)
         self._run(uid, sha, Kind.NOTICE, data, EXTENSIONS[actual], pref, say, send, check, fallback_lang=lang)
 
     def _run(
@@ -256,7 +258,7 @@ class Intake:
         self.store.add_item(uid, sha, kind, str(path), self.media_ttl)
 
         # A reviewer-confirmed fake is answered at once, without checking again.
-        if pipeline.is_known_fake_hash(sha):
+        if pipeline.is_known_fake(sha, known=self.store.is_known_fake):
             report = self.store.latest_report_for(sha)
             group = reply.sender_group(*report_sender(report)) if report else "general"
             reply_lang = lang or (report["lang"] if report else None) or fallback_lang
@@ -314,9 +316,11 @@ class Intake:
         try:
             path = self.evidence.put(data, sha, Path(item["media_path"]).suffix)
             if kind is Kind.TEXT:
-                result, fields = pipeline.analyse_text(data.decode("utf-8"), sha256=sha, lang=pref)
+                result, fields = pipeline.analyse_text(data.decode("utf-8"), sha256=sha, lang=pref, known=self.store.is_known_fake)
             else:
-                result, fields = pipeline.analyse_file(data, sha256=sha, lang=pref, fallback_lang=lang)
+                result, fields = pipeline.analyse_file(
+                    data, sha256=sha, lang=pref, fallback_lang=lang, known=self.store.is_known_fake
+                )
             case = self.store.add_report(
                 NewReport(sha, uid, kind, len(data), str(path), result, fields, report_payees(fields))
             )

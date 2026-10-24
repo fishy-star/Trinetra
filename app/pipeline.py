@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Callable
 
 from app import reply, verdict
 from app.checks import ask, source
@@ -33,23 +34,33 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
-def is_known_fake_hash(sha256: str) -> bool:
-    return sha256 in known_fakes().get("hashes", [])
+# Reviewer-approved fakes live in the runtime database; the caller passes its lookup, e.g. Store.is_known_fake.
+KnownFake = Callable[[str, list[str]], bool]
 
 
-def _known_fake(sha256: str, fields: Fields) -> bool:
-    fakes = known_fakes()
-    payees = {normalize_payee(p) for p in fakes.get("payees", [])}
-    return sha256 in fakes.get("hashes", []) or any(normalize_payee(p) in payees for p in fields.payees)
+def is_known_fake(sha256: str, payees: list[str] = (), known: KnownFake | None = None) -> bool:
+    """Approved in the database, or in the read-only seed list data/registry/known_fakes.json."""
+    seed = known_fakes()
+    seed_payees = {normalize_payee(p) for p in seed.get("payees", [])}
+    if sha256 in seed.get("hashes", []) or any(normalize_payee(p) in seed_payees for p in payees):
+        return True
+    return known is not None and known(sha256, list(payees))
 
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def check_file(data: bytes, *, sha256: str | None = None, lang: str | None = None, fallback_lang: str = "en") -> Result:
+def check_file(
+    data: bytes,
+    *,
+    sha256: str | None = None,
+    lang: str | None = None,
+    fallback_lang: str = "en",
+    known: KnownFake | None = None,
+) -> Result:
     """A notice as an image (PNG/JPEG) or a PDF. The caller has already checked the type by magic bytes."""
-    return analyse_file(data, sha256=sha256, lang=lang, fallback_lang=fallback_lang)[0]
+    return analyse_file(data, sha256=sha256, lang=lang, fallback_lang=fallback_lang, known=known)[0]
 
 
 def check_text(
@@ -59,13 +70,19 @@ def check_text(
     sha256: str | None = None,
     lang: str | None = None,
     fallback_lang: str = "en",
+    known: KnownFake | None = None,
 ) -> Result:
     """Run the full check on text: a forwarded message, or text extracted from a notice or voice note."""
-    return analyse_text(text, kind=kind, sha256=sha256, lang=lang, fallback_lang=fallback_lang)[0]
+    return analyse_text(text, kind=kind, sha256=sha256, lang=lang, fallback_lang=fallback_lang, known=known)[0]
 
 
 def analyse_file(
-    data: bytes, *, sha256: str | None = None, lang: str | None = None, fallback_lang: str = "en"
+    data: bytes,
+    *,
+    sha256: str | None = None,
+    lang: str | None = None,
+    fallback_lang: str = "en",
+    known: KnownFake | None = None,
 ) -> tuple[Result, Fields]:
     sha256 = sha256 or sha256_bytes(data)
     try:
@@ -73,7 +90,7 @@ def analyse_file(
     except ocr.UnreadableFile as e:
         log.info("could not read file sha256=%s: %s", sha256[:12], e)
         text = ""
-    return analyse_text(text, kind=Kind.NOTICE, sha256=sha256, lang=lang, fallback_lang=fallback_lang)
+    return analyse_text(text, kind=Kind.NOTICE, sha256=sha256, lang=lang, fallback_lang=fallback_lang, known=known)
 
 
 def analyse_text(
@@ -83,6 +100,7 @@ def analyse_text(
     sha256: str | None = None,
     lang: str | None = None,
     fallback_lang: str = "en",
+    known: KnownFake | None = None,
 ) -> tuple[Result, Fields]:
     """The check, plus the unmasked fields. Only a report, after the user's consent, may keep those."""
     sha256 = sha256 or sha256_text(text)
@@ -94,9 +112,9 @@ def analyse_text(
     signals = source.run(fields) + ask.run(fields, text) if readable else []
     # Proof of source (PDF signature, registry match) is not wired in yet, so nothing is proven.
     source_proven = False
-    known = readable and _known_fake(sha256, fields)
+    matched = readable and is_known_fake(sha256, fields.payees, known)
 
-    v, row = verdict.decide(kind, signals, known, source_proven, readable)
+    v, row = verdict.decide(kind, signals, matched, source_proven, readable)
     group = reply.sender_group(fields.sender_type, fields.sender_id)
     result = Result(
         kind=kind,

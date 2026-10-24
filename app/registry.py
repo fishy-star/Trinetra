@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import threading
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -65,24 +64,11 @@ def normalize_payee(payee: str) -> str:
     return payee if "@" in payee else "".join(c for c in payee if c.isdigit())
 
 
-# Reviewer-confirmed fakes. Module-level so tests can point it at a temporary copy.
+# A read-only seed list of fakes confirmed outside this deployment. The app never writes it:
+# fakes approved in the review console are kept in the runtime database (Store.known_fakes).
 KNOWN_FAKES_PATH = REGISTRY_DIR / "known_fakes.json"
-_known_fakes_lock = threading.Lock()
 
 
+@lru_cache
 def known_fakes() -> dict[str, list[str]]:
-    # Not cached: the review console changes this file while the bot runs in another process.
     return json.loads(KNOWN_FAKES_PATH.read_text(encoding="utf-8"))
-
-
-def update_known_fakes(add_hashes=(), add_payees=(), remove_hashes=(), remove_payees=()) -> None:
-    """Add or remove confirmed fakes. Written to a temporary file and renamed, so readers never see half a file."""
-    with _known_fakes_lock:
-        data = known_fakes()
-        hashes = [h for h in data.get("hashes", []) if h not in set(remove_hashes)]
-        payees = [p for p in data.get("payees", []) if p not in set(remove_payees)]
-        data["hashes"] = list(dict.fromkeys([*hashes, *add_hashes]))
-        data["payees"] = list(dict.fromkeys([*payees, *add_payees]))
-        tmp = KNOWN_FAKES_PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(KNOWN_FAKES_PATH)

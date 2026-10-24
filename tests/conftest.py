@@ -1,9 +1,8 @@
-import shutil
 import socket
 
 import pytest
 
-from app import registry
+from app import main
 
 
 @pytest.fixture(autouse=True)
@@ -18,9 +17,8 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def known_fakes(tmp_path, monkeypatch):
-    """Every test gets its own copy of known_fakes.json; the real registry is never written."""
-    path = tmp_path / "known_fakes.json"
-    shutil.copy(registry.KNOWN_FAKES_PATH, path)
-    monkeypatch.setattr(registry, "KNOWN_FAKES_PATH", path)
-    return path
+def no_runtime_database():
+    """The web page's approved-fakes lookup would open DATA_DIR's real database; tests use none."""
+    main.app.dependency_overrides[main.known_fakes_lookup] = lambda: (lambda sha, payees: False)
+    yield
+    main.app.dependency_overrides.pop(main.known_fakes_lookup, None)
