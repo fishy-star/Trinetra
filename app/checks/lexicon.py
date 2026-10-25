@@ -67,8 +67,31 @@ def sentences(text: str) -> list[str]:
 NEGATION = _c(
     r"\b(?:not|never|nor|don't|dont|doesn't|cannot|can't|won't)\b",
     r"\bno\b(?!\.)",  # but not "A/c No."
+    r"\b(?:mat|nahi|nahin|nahee)\b",  # Roman Hindi; not "na", which is usually a softener ("bhej do na")
     rf"{L}(?:नहीं|न|मत|ना){R}",
 )
+
+# A negation cancels only the verb it negates. "Don't tell Dad", "किसी को मत बताना" or "don't worry" negate
+# telling or worrying, not the payment in the same sentence, so they are taken out before `negated` looks.
+# Negated paying, sending or sharing ("don't send money", "never share your OTP", "paise mat bhejo") stays.
+OTHER_NEGATED = _c(
+    r"\b(?:do not|don't|dont|never|not to)\s+(?:tell|inform|disclose|discuss|reveal|mention|let\s+\w+\s+know|"
+    r"worry|panic|be afraid|be scared|disconnect|hang up|cut the call)\b[^.!?,;\n]{0,30}?"
+    r"(?=[.!?,;\n]|$|\s+(?:and|or|but)\b)",
+    r"\b(?:kisi\s+ko\s+(?:bhi\s+)?)?(?:mat|na|nahi|nahin)\s+bata(?:na|o|iye|ein|en|yen)?\b",
+    r"\bbata(?:na|o|iye)?\s+mat\b",
+    r"\b(?:ghabrao|ghabraiye|ghabrana|chinta|tension)\s+(?:mat|na|nahi)(?:\s+(?:karo|kariye|karna|lo|lena))?\b",
+    rf"{L}(?:किसी\s+को\s+(?:भी\s+)?)?(?:मत|न|ना|नहीं)\s+बता(?:ना|ओ|एं|एँ|इए|ये|एगा|ेंगे)?{R}",
+    rf"{L}बता(?:ना|ओ|इए)?\s+मत{R}",
+    rf"{L}(?:घबरा(?:ओ|एं|एँ|इए|ना)?|चिंता|फ़िक्र|फिक्र)\s+(?:मत|न|ना|नहीं)(?:\s+(?:करो|करें|करिए|कीजिए|करना))?{R}",
+    rf"{L}(?:फ़ोन|फोन|कॉल)\s+(?:मत|न)\s+काट(?:ना|ो|ें|िए)?{R}",
+)
+
+
+def negated(sentence: str) -> bool:
+    """Whether the sentence negates its ask, ignoring negations of telling, worrying or hanging up."""
+    return bool(NEGATION.search(OTHER_NEGATED.sub(" ", sentence)))
+
 
 # --- the ask -----------------------------------------------------------------
 
@@ -83,7 +106,10 @@ PAYMENT_VERB = _c(
 
 SECRECY = _c(
     r"\b(?:do not|don't|dont|never)\s+(?:tell|disclose|inform|discuss|reveal|share|mention)\b"
-    r"[^.]{0,40}?\b(?:anyone|anybody|any person|any one|family|friends|relatives|bank|home)\b",
+    r"[^.]{0,40}?\b(?:anyone|anybody|any person|any one|family|friends|relatives|bank|home|dad|daddy|mom|mum|"
+    r"mummy|papa|parents|husband|wife|son|daughter|brother|sister)\b",
+    r"\b(?:kisi|kissi|ghar|gharwalon|mummy|papa|mom|dad|bank)\s+(?:ko|me|mein|pe|par)\s+(?:bhi\s+)?(?:mat|na|nahi)\s+"
+    r"bata(?:na|o|iye|en|ein)?\b",
     r"\bconfidential\b",
     r"\bsecrecy\b",
     r"\bkeep (?:this|it) (?:a )?(?:secret|confidential)\b",
@@ -158,7 +184,7 @@ def threatens_arrest(text: str, asks_for_money: bool) -> bool:
     that says "Beware: a warrant has been issued" and demands payment is still a threat.
     """
     return any(
-        ARREST.search(s) and not NEGATION.search(s) and (asks_for_money or not AWARENESS.search(s))
+        ARREST.search(s) and not negated(s) and (asks_for_money or not AWARENESS.search(s))
         for s in sentences(text)
     )
 
@@ -178,7 +204,7 @@ def deadline_hours(text: str) -> float | None:
 
 def payment_sentences(text: str) -> list[str]:
     """Sentences that tell the reader to pay. Warnings ("do not transfer money") are excluded."""
-    return [s for s in sentences(text) if PAYMENT_VERB.search(s) and not NEGATION.search(s)]
+    return [s for s in sentences(text) if PAYMENT_VERB.search(s) and not negated(s)]
 
 
 # --- money, credentials, rewards and account threats (English, Hindi and Hinglish) -----------------------
@@ -235,18 +261,18 @@ UNNAMED_BANK = _c(r"\bbank\b", r"\b(?:debit|credit|atm)\s+card\b", rf"{L}बै�
 
 
 def asks_for_money(text: str) -> bool:
-    return any(MONEY_REQUEST.search(s) and not NEGATION.search(s) for s in sentences(text))
+    return any(MONEY_REQUEST.search(s) and not negated(s) for s in sentences(text))
 
 
 def asks_for_credentials(text: str) -> bool:
     return any(
-        CREDENTIALS.search(s) and not NEGATION.search(s) and not CREDENTIALS_EXCLUDE.search(s)
+        CREDENTIALS.search(s) and not negated(s) and not CREDENTIALS_EXCLUDE.search(s)
         for s in sentences(text)
     )
 
 
 def offers_reward(text: str) -> bool:
-    return any(REWARD.search(s) and not NEGATION.search(s) for s in sentences(text))
+    return any(REWARD.search(s) and not negated(s) for s in sentences(text))
 
 
 def threatens_account(text: str) -> bool:

@@ -224,6 +224,18 @@ body.zone-public .btn-lg { width: 100%; }
 .alert li { margin-bottom: 4px; }
 .alert p:last-child { margin-bottom: 0; }
 
+/* The recorder's parts use display rules, so `hidden` must win explicitly or they all show on load. */
+.recorder[hidden], .recorder [hidden] { display: none !important; }
+.recorder { margin: 12px 0 0; display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.recorder .rec-btn { width: 100%; min-height: 48px; }
+.recorder.is-recording .rec-btn { border-color: #B3261E; color: #B3261E; }
+.rec-state { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: #B3261E; font-weight: 600; }
+.rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #B3261E; animation: rec-blink 1s infinite; }
+@keyframes rec-blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+.rec-ready { display: flex; flex-direction: column; gap: 10px; }
+.rec-ready audio { width: 100%; }
+.rec-ready .btn { width: 100%; min-height: 48px; }
 .web-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
 .web-actions details.act { flex: 1 1 220px; }
 .web-actions summary { list-style: none; cursor: pointer; }

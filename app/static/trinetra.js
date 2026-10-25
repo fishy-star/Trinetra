@@ -85,6 +85,107 @@
     }
   }
 
+  // Voice note recorder: <div data-recorder> inside a form with a file input. Tap to start, tap to stop
+  // (60 seconds at most), then "Check this" sends the recording through the same upload as a chosen file.
+  document.querySelectorAll("[data-recorder]").forEach(function (box) {
+    var form = box.closest("form");
+    var input = form && form.querySelector("input[type=file]");
+    var toggleBtn = box.querySelector("[data-rec-toggle]");
+    var state = box.querySelector("[data-rec-state]");
+    var clock = box.querySelector("[data-rec-time]");
+    var ready = box.querySelector("[data-rec-ready]");
+    var player = box.querySelector("audio");
+    var sendBtn = box.querySelector("[data-rec-send]");
+    var error = box.querySelector("[data-rec-error]");
+    var MAX_SECONDS = 60;
+    var recorder = null, chunks = [], started = 0, ticker = null, blob = null, stream = null;
+    var say = function (el) {
+      var lang = document.documentElement.lang === "hi" ? "hi" : "en";
+      return el.getAttribute("data-" + lang) || el.textContent;
+    };
+    var label = function (key) { return say(box.querySelector("[data-label-" + key + "]")); };
+    var fail = function () {
+      box.classList.remove("is-recording");
+      state.hidden = true;
+      ready.hidden = true;
+      error.hidden = false;
+      toggleBtn.hidden = true;  // mic denied or unsupported: only the "can't record here" message
+    };
+    var supported = !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+                       && window.isSecureContext && input);
+    box.hidden = false;
+    if (!supported) { fail(); return; }
+
+    var pickType = function () {
+      var types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+      for (var i = 0; i < types.length; i++) {
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(types[i])) return types[i];
+      }
+      return "";
+    };
+    var fmt = function (s) { return Math.floor(s / 60) + ":" + ("0" + Math.floor(s % 60)).slice(-2); };
+    var stop = function () {
+      if (recorder && recorder.state === "recording") recorder.stop();
+      clearInterval(ticker);
+    };
+    var start = function () {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+        stream = s;
+        var type = pickType();
+        try { recorder = type ? new MediaRecorder(s, { mimeType: type }) : new MediaRecorder(s); }
+        catch (e) { fail(); return; }
+        chunks = [];
+        recorder.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          blob = new Blob(chunks, { type: (recorder.mimeType || type || "audio/webm").split(";")[0] });
+          box.classList.remove("is-recording");
+          state.hidden = true;
+          toggleBtn.textContent = label("again");
+          player.src = URL.createObjectURL(blob);
+          ready.hidden = false;
+        };
+        recorder.start();
+        started = Date.now();
+        clock.textContent = "0:00";
+        box.classList.add("is-recording");
+        state.hidden = false;
+        ready.hidden = true;
+        toggleBtn.textContent = label("stop");
+        ticker = setInterval(function () {
+          var secs = (Date.now() - started) / 1000;
+          clock.textContent = fmt(Math.min(secs, MAX_SECONDS));
+          if (secs >= MAX_SECONDS) stop();
+        }, 250);
+      }, fail);
+    };
+    toggleBtn.addEventListener("click", function () {
+      if (recorder && recorder.state === "recording") stop(); else start();
+    });
+    sendBtn.addEventListener("click", function () {
+      if (!blob) return;
+      var ext = blob.type.indexOf("mp4") >= 0 ? "m4a" : blob.type.indexOf("ogg") >= 0 ? "ogg" : "webm";
+      var file = new File([blob], "voice-note." + ext, { type: blob.type });
+      sendBtn.disabled = true;
+      sendBtn.textContent = label("checking");
+      try {
+        var dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        var text = form.querySelector("textarea");
+        if (text) text.value = "";
+        form.submit();
+      } catch (e) {
+        // Older browsers cannot set a file input: post it ourselves and show the result page.
+        var data = new FormData(form);
+        data.set("file", file);
+        fetch(form.action, { method: "POST", body: data }).then(function (r) { return r.text(); }).then(function (html) {
+          document.open(); document.write(html); document.close();
+        }, fail);
+      }
+    });
+  });
+
   // Table filters: chips with data-filter="value" show rows whose data-action matches.
   document.querySelectorAll("[data-filter-for]").forEach(function (chips) {
     var table = document.getElementById(chips.getAttribute("data-filter-for"));

@@ -151,6 +151,25 @@ def _actions(token: str, verdict: str, lang: str) -> str:
     )
 
 
+def _recorder() -> str:
+    """Record a voice note in the browser. Hidden until the page script shows it; without it, upload still works."""
+    return f"""<div class="recorder" data-recorder hidden>
+  <button type="button" class="btn btn-ghost rec-btn" data-rec-toggle>{t("Record voice note", "वॉइस नोट रिकॉर्ड करें")}</button>
+  <p class="rec-state" data-rec-state hidden aria-live="polite"><span class="rec-dot" aria-hidden="true"></span>
+    {t("Recording… tap Stop when done", "रिकॉर्ड हो रहा है… पूरा होने पर रोकें दबाएँ")}
+    <span class="mono" data-rec-time>0:00</span><span class="mono muted"> / 1:00</span></p>
+  <div class="rec-ready" data-rec-ready hidden>
+    <audio controls preload="metadata"></audio>
+    <button type="button" class="btn btn-gold" data-rec-send>{t("Check this", "इसे जाँचें")}</button></div>
+  <p class="alert alert-warn" data-rec-error hidden>{t(
+        "Your browser can't record here. Upload an audio file or use our Telegram bot.",
+        "आपका ब्राउज़र यहाँ रिकॉर्ड नहीं कर सकता। ऑडियो फ़ाइल अपलोड करें या हमारा Telegram बॉट इस्तेमाल करें।")}</p>
+  <span hidden data-label-stop data-en="Stop" data-hi="रोकें"></span>
+  <span hidden data-label-again data-en="Record again" data-hi="फिर से रिकॉर्ड करें"></span>
+  <span hidden data-label-checking data-en="Checking… this takes up to a minute" data-hi="जाँच हो रही है… इसमें एक मिनट तक लग सकता है"></span>
+</div>"""
+
+
 def _feedback_form(sha256: str, verdict: str, lang: str, token: str = "") -> str:
     up, down = FEEDBACK_BUTTONS[lang]
     return (
@@ -199,6 +218,7 @@ def _page(text: str = "", reply: str | None = None, lang: str = "", verdict: str
     <input id="file" name="file" type="file" accept="image/png,image/jpeg,application/pdf,audio/*,video/*">
     <span class="chosen" aria-live="polite"></span>
   </label>
+  {_recorder()}
   <div class="or">{t("or", "या")}</div>
   <label class="field" for="text">{t("Paste the message", "संदेश पेस्ट करें")}
     <textarea id="text" name="text" maxlength="{MAX_TEXT_CHARS}"
@@ -503,6 +523,12 @@ a genuine one verified, and an edited copy exposed.</p></section>
 </div>
 <p class="alert alert-info">No Telegram app on this computer? Open it on your phone, or use
 <a href="https://web.telegram.org" rel="noopener">web.telegram.org</a>.</p>
+<section class="card try-record"><h2>{t("Or say it here", "या यहीं बोलकर बताएँ")}</h2>
+<p class="muted">{t("Record a voice note of up to a minute, or read out a message you got. We check what it asks for.",
+   "एक मिनट तक का वॉइस नोट रिकॉर्ड करें, या मिला हुआ संदेश पढ़कर सुनाएँ। हम जाँचते हैं कि उसमें क्या माँगा गया है।")}</p>
+<form method="post" action="/check" enctype="multipart/form-data"><input type="hidden" name="lang" value="">
+  <input type="file" name="file" accept="audio/*" hidden>{_recorder()}</form>
+<p class="small muted">{t("Or upload a photo, PDF or audio file on the", "या")} <a href="/">{t("check page", "जाँच पेज पर फ़ोटो, PDF या ऑडियो फ़ाइल अपलोड करें")}</a>.</p></section>
 <h2>The samples</h2>
 <p class="muted">Or download them here and send them to the bot yourself, or upload them on the <a href="/">check page</a>.</p>
 <div class="strip samples">{tiles or '<p class="muted">The samples are not set up on this server yet.</p>'}</div>

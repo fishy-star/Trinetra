@@ -11,7 +11,7 @@ from html import escape
 from fastapi.responses import HTMLResponse
 
 SECURITY_HEADERS = {"Cache-Control": "no-store", "X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff"}
-ASSET_VERSION = "1"  # bump to make browsers fetch new CSS/JS
+ASSET_VERSION = "4"  # bump to make browsers fetch new CSS/JS
 
 # Verdicts and statuses: each has its own colour AND its word, never colour alone.
 BADGES = {
