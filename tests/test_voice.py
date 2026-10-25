@@ -16,7 +16,7 @@ from app.extract import speech
 from app.intake import MESSAGES, Inbound, Intake
 from app.models import Kind, Signal, Strength, PointsTo, Verdict
 from app.pipeline import check_audio
-from app.reply import UNCLEAR_SPEECH, VOICE_SCOPE
+from app.reply import UNCLEAR_SPEECH, VIDEO_SCOPE, VOICE_SCOPE
 from app.store import Store
 from tests.test_judge_mode import TEXTS
 
@@ -162,7 +162,8 @@ def test_the_bot_listens_then_answers_with_what_it_heard(heard, media, intake, k
     out = voice(intake, media[kind], media_type, mime)
     assert str(out[0]) == LISTENING
     text = str(out[-1])
-    assert text.startswith("संदिग्ध") and "हमने सुना: \"बेटा" in text and VOICE_SCOPE["hi"] in text
+    scope = VIDEO_SCOPE if kind == "mp4" else VOICE_SCOPE  # a video gets "voice or the face"
+    assert text.startswith("संदिग्ध") and "हमने सुना: \"बेटा" in text and scope["hi"] in text
     assert any(d.startswith("why:") for _, d in out[-1].buttons)
     assert intake.store.stats()["by_kind"] == {"voice": 1}
 

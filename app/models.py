@@ -105,6 +105,8 @@ class Result:
     reviewed: bool = False
     verify: dict[str, str | None] = field(default_factory=dict)  # where to check at the source, by language
     heard: str = ""  # voice and video: what we heard, masked and trimmed. Shown once, never stored
+    seen: str = ""  # video: text shown on screen, masked and trimmed. Shown once, never stored
+    video: bool = False  # the recording has a video track
 
 
 @dataclass

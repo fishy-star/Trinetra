@@ -57,6 +57,11 @@ ACTION_VOICE = {
 }
 # Voice notes and videos: what we heard, and what we do and do not check.
 HEARD = {"en": 'We heard: "{text}"', "hi": 'हमने सुना: "{text}"'}
+SEEN = {"en": 'On screen: "{text}"', "hi": 'स्क्रीन पर: "{text}"'}
+VIDEO_SCOPE = {
+    "en": "We check what the message says and asks for. We don't judge whether the voice or the face is real.",
+    "hi": "हम यह जाँचते हैं कि संदेश में क्या कहा और माँगा गया है। हम यह तय नहीं करते कि आवाज़ या चेहरा असली है या नहीं।",
+}
 VOICE_SCOPE = {
     "en": "We check what the message asks for. We don't judge whether the voice is real.",
     "hi": "हम यह जाँचते हैं कि संदेश में क्या माँगा गया है। हम यह तय नहीं करते कि आवाज़ असली है या नहीं।",
@@ -77,10 +82,11 @@ def heard_snippet(text: str) -> str:
     return f"{cut}…"
 
 
-def _voice_lines(kind: Kind, verdict: Verdict, lang: str, heard: str) -> list[str]:
+def _voice_lines(kind: Kind, verdict: Verdict, lang: str, heard: str, seen: str = "", video: bool = False) -> list[str]:
     if kind is not Kind.VOICE or verdict is Verdict.COULD_NOT_CHECK:
         return []
-    return [*([HEARD[lang].format(text=heard)] if heard else []), VOICE_SCOPE[lang]]
+    return [*([HEARD[lang].format(text=heard)] if heard else []), *([SEEN[lang].format(text=seen)] if seen else []),
+            (VIDEO_SCOPE if video else VOICE_SCOPE)[lang]]
 
 
 FOOTER_UNREVIEWED = {
@@ -162,6 +168,8 @@ def build(
     reviewed: bool = False,
     verify: str | None = None,
     heard: str = "",
+    seen: str = "",
+    video: bool = False,
 ) -> str:
     """`sender` is the group from `sender_group`: "authority", "finance" or "general".
 
@@ -191,7 +199,7 @@ def build(
             parts.append(ACTION_FAKE[sender][lang])
     if kind is Kind.VOICE and verdict is not Verdict.COULD_NOT_CHECK:
         parts.append(ACTION_VOICE[lang])
-    parts += _voice_lines(kind, verdict, lang, heard)
+    parts += _voice_lines(kind, verdict, lang, heard, seen, video)
     parts.append((FOOTER_REVIEWED if reviewed else FOOTER_UNREVIEWED)[lang])
     return "\n\n".join(parts)
 
@@ -299,7 +307,7 @@ def strongest_reason(verdict: Verdict, signals: list[Signal], lang: str, reviewe
 
 
 def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender: str = "general",
-          reviewed: bool = False, heard: str = "") -> str:
+          reviewed: bool = False, heard: str = "", seen: str = "", video: bool = False) -> str:
     """The bot's reply: verdict line, the strongest reason, one action line, one line of review status.
 
     A voice note or video adds what we heard and that we do not judge the voice itself.
@@ -317,7 +325,7 @@ def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender
         action = SHORT_ACTION[verdict][lang]
     reason = strongest_reason(verdict, signals, lang, reviewed)
     parts = [SHORT_VERDICT[lang][verdict], *([reason] if reason else []), action,
-             *_voice_lines(kind, verdict, lang, heard), FOOTER_SHORT[reviewed][lang]]
+             *_voice_lines(kind, verdict, lang, heard, seen, video), FOOTER_SHORT[reviewed][lang]]
     return "\n\n".join(parts)
 
 

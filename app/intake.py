@@ -228,6 +228,8 @@ class Answer:
     verify: dict  # language -> where to check at the source
     rule_row: str = ""
     heard: str = ""  # voice and video: what we heard, masked and trimmed
+    seen: str = ""  # video: on-screen text, masked and trimmed
+    video: bool = False
 
 
 YES = {"YES", "Y", "हाँ", "हां"}
@@ -306,7 +308,7 @@ class Intake:
         self._check_file = check_file
         self._analyse_audio = analyse_audio
         # What a recording said, masked and trimmed, kept in memory only so a repeat forward can show it again.
-        self._heard: OrderedDict[str, str] = OrderedDict()
+        self._heard: OrderedDict[str, tuple[str, str, bool]] = OrderedDict()
         data_dir = data_dir or store.path.parent
         self.media = MediaDir(data_dir / "media")
         self.evidence = EvidenceStore(data_dir / "evidence")
@@ -545,7 +547,7 @@ class Intake:
 
     def _send_answer(self, key: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
         text = reply.short(answer.verdict, answer.signals, answer.kind, lang, answer.sender, answer.reviewed,
-                           answer.heard)
+                           answer.heard, answer.seen, answer.video)
         send(Out(text, rows=verdict_rows(key, answer.verdict, lang)))
 
     def _remember(self, uid: str, key: str, answer: Answer) -> None:
@@ -661,7 +663,7 @@ class Intake:
             verify = {lg: reply.verify_line(cached.sender_type, cached.sender_id, lg) for lg in ("en", "hi")}
             self.store.record_check(kind.value, channel, cached.verdict.value)
             answer = Answer(cached.verdict, cached.signals, cached.kind, group, cached.rule_row == "R1", verify,
-                            cached.rule_row, self._heard.get(sha, ""))
+                            cached.rule_row, *self._heard.get(sha, ("", "", False)))
             self._deliver(uid, sha, answer, reply_lang, send)
             return
 
@@ -682,13 +684,13 @@ class Intake:
         log.info("checked kind=%s verdict=%s row=%s", result.kind.value, result.verdict.value, result.rule_row)
         self.store.record_check(kind.value, channel, result.verdict.value)
         group = reply.sender_group(result.fields.sender_type, result.fields.sender_id)
-        if result.heard:
+        if result.heard or result.seen or result.video:
             with self._lock:
-                self._heard[sha] = result.heard
+                self._heard[sha] = (result.heard, result.seen, result.video)
                 while len(self._heard) > ANSWERS_KEPT:
                     self._heard.popitem(last=False)
         answer = Answer(result.verdict, result.signals, result.kind, group, result.reviewed, result.verify,
-                        result.rule_row, result.heard)
+                        result.rule_row, result.heard, result.seen, result.video)
         self._deliver(uid, sha, answer, result.lang, send)
 
     def _deliver(self, uid: str, sha: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:

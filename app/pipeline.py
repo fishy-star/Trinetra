@@ -16,7 +16,7 @@ from app.checks.issuer import IssuerLookup
 from app.config import ENGINE_VERSION, settings
 from app.extract import fields as field_extractor
 from app.checks import lexicon
-from app.extract import ocr, speech, transcript
+from app.extract import ocr, speech, transcript, video
 from app.extract.mask import mask_fields, mask_text
 from app.models import Fields, Kind, Result, Signal
 from app.registry import known_fakes, normalize_payee
@@ -98,22 +98,28 @@ def check_audio(data: bytes, **options) -> Result:
 
 def analyse_audio(
     data: bytes, *, sha256: str | None = None, transcribe: Callable[[bytes], speech.Transcript] | None = None,
-    **options,
+    screen: Callable[[bytes], video.ScreenReader] | None = None, **options,
 ) -> tuple[Result, Fields]:
     """Transcribe, mask, then the same text checks and rule table as a forwarded message, as kind VOICE.
 
-    There is no fake-voice detector: the only media signal is the optional AUDIO_SERVICE_URL, and it is WEAK.
+    A video's on-screen text (OCR of a few frames, read alongside the transcription) is added to the
+    transcript. There is no fake-voice or fake-face detector: the only media signal is the optional
+    AUDIO_SERVICE_URL, and it is WEAK.
     """
     sha256 = sha256 or sha256_bytes(data)
+    reader = (screen or video.ScreenReader)(data)
     heard = (transcribe or speech.transcribe)(data)
+    is_video, on_screen = reader.result()
     # The checks read the transcript with common speech-to-text mistakes folded and spoken amounts as digits;
-    # the reply shows what was actually heard. The reply follows the words' own script; with no words, the
-    # caller's fallback language, not a guess.
-    text = transcript.normalise(heard.text)
-    extra = speech.spoof_signal(heard.pcm) if is_readable(text) else []
+    # on-screen text is OCR, so it is added as read. The reply shows what was actually heard and seen.
+    # The reply follows the words' own script; with no words, the caller's fallback language, not a guess.
+    spoken = transcript.normalise(heard.text)
+    text = "\n".join(t for t in (spoken, on_screen) if t.strip())
+    extra = speech.spoof_signal(heard.pcm) if is_readable(spoken) else []
     identity = lexicon.RELATIVE_IDENTITY if lexicon.family_emergency(text) else None
     return analyse_text(text, kind=Kind.VOICE, sha256=sha256, extra_signals=extra, claimed_identity=identity,
-                        heard=reply.heard_snippet(mask_text(heard.text)), **options)
+                        heard=reply.heard_snippet(mask_text(heard.text)),
+                        seen=reply.heard_snippet(mask_text(on_screen)), video=is_video, **options)
 
 
 def analyse_text(
@@ -130,6 +136,8 @@ def analyse_text(
     extra_signals: list[Signal] = (),
     heard: str = "",
     claimed_identity: str | None = None,
+    seen: str = "",
+    video: bool = False,
 ) -> tuple[Result, Fields]:
     """The check, plus the unmasked fields. Only a report, after the user's consent, may keep those.
 
@@ -177,11 +185,14 @@ def analyse_text(
         signals=signals,
         fields=mask_fields(fields),
         lang=lang,
-        reply=reply.build(v, signals, kind, lang, group, reviewed=row == "R1", verify=verify, heard=heard),
+        reply=reply.build(v, signals, kind, lang, group, reviewed=row == "R1", verify=verify, heard=heard, seen=seen,
+                          video=video),
         engine_version=ENGINE_VERSION,
         needs_review=verdict.needs_review(signals, issued.proven),
         reviewed=row == "R1",
         verify=verify_lines,
         heard=heard if readable else "",
+        seen=seen if readable else "",
+        video=video,
     )
     return result, fields
