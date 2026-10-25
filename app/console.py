@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app import packet, registry, ui
 from app.auth import LoginLimiter, Sessions, client_of
 from app.config import settings
-from app.evidence import CONTENT_TYPES, EvidenceStore, IntegrityError, write_once
+from app.evidence import CONTENT_TYPES, RECORDINGS, EvidenceStore, IntegrityError, write_once
 from app.extract.mask import mask_account, mask_email, mask_phone, mask_upi
 from app.store import Store, now
 
@@ -254,8 +254,9 @@ def _evidence(r, count: int) -> str:
     if suffix in (".png", ".jpg"):
         view = f'<a href="{url}"><img class="evidence-img" src="{url}" alt="Reported file"></a>'
     else:
-        view = (f'<div class="empty"><p>The reported file is a {"PDF" if suffix == ".pdf" else "text message"}.</p>'
-                f'<a class="btn btn-ghost" href="{url}">Open the reported {"PDF" if suffix == ".pdf" else "text"}</a></div>')
+        what = "PDF" if suffix == ".pdf" else "recording" if suffix in RECORDINGS else "text message"
+        view = (f'<div class="empty"><p>The reported file is a {what}.</p>'
+                f'<a class="btn btn-ghost" href="{url}">Open the reported {"text" if what == "text message" else what}</a></div>')
     return (
         f'<section class="card evidence"><div class="card-title"><h2>Evidence</h2>'
         f'<span class="muted small">reported {count} time{"s" if count != 1 else ""} · {escape(r["kind"])} · '
@@ -475,9 +476,9 @@ def evidence_file(report_id: int, user: str = Depends(require_user), c: Console 
         raise HTTPException(500, "Evidence file does not match its hash") from None
     c.store.audit(user, "evidence_view", f"case={r['case_id']} report={report_id}")
     headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"}
-    if path.suffix == ".pdf":
-        # A scammer's PDF is downloaded, never rendered inside the console.
-        headers["Content-Disposition"] = f'attachment; filename="case-{r["case_id"]}-{r["sha256"][:12]}.pdf"'
+    if path.suffix == ".pdf" or path.suffix in RECORDINGS:
+        # A scammer's PDF or recording is downloaded, never rendered inside the console.
+        headers["Content-Disposition"] = f'attachment; filename="case-{r["case_id"]}-{r["sha256"][:12]}{path.suffix}"'
     return Response(data, media_type=CONTENT_TYPES[path.suffix], headers=headers)
 
 

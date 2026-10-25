@@ -133,7 +133,7 @@ def register_commands(api: TelegramAPI) -> None:
 def parse_update(update: dict[str, Any], api: TelegramAPI | None = None) -> Inbound | None:
     """Private-chat messages and button presses only. Groups, channels and edits are ignored.
 
-    With `api`, photos and documents get a `fetch` that downloads them when intake asks.
+    With `api`, photos, documents, voice notes, audio and videos get a `fetch` that downloads them when intake asks.
     A button press becomes a message whose text is the button's data.
     """
     press = update.get("callback_query")
@@ -153,14 +153,14 @@ def parse_update(update: dict[str, Any], api: TelegramAPI | None = None) -> Inbo
     if not message or message.get("chat", {}).get("type") != "private":
         return None
     media = next((k for k in MEDIA_KEYS if k in message), None)
-    if media in ("video_note", "sticker", "animation"):
+    if media in ("sticker", "animation"):
         media = "other"
 
     file: dict[str, Any] = {}
     if media == "photo":
         file = max(message["photo"], key=lambda p: p.get("file_size") or p.get("width", 0) * p.get("height", 0))
-    elif media == "document":
-        file = message["document"]
+    elif media in ("document", "voice", "audio", "video", "video_note"):
+        file = message[media]
     file_id = file.get("file_id")
     return Inbound(
         channel="telegram",

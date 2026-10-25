@@ -64,7 +64,7 @@ data/registry/    official domains, known fakes, agencies
 
 ## Running it
 
-Requires Python 3.11+ and Tesseract with the Hindi language pack (`brew install tesseract tesseract-lang` on macOS, or `apt install tesseract-ocr tesseract-ocr-hin` on Ubuntu).
+Requires Python 3.11+, Tesseract with the Hindi language pack and ffmpeg (`brew install tesseract tesseract-lang ffmpeg` on macOS, or `apt install tesseract-ocr tesseract-ocr-hin ffmpeg` on Ubuntu).
 
 ```bash
 python3 -m venv .venv
@@ -103,6 +103,14 @@ python tools/make_demo_summons.py     # a demo summons to issue, in data/runtime
 
 Polling and a webhook cannot run at the same time. The deployed service uses the webhook at `/telegram/webhook` instead, which is off until `TELEGRAM_WEBHOOK_SECRET` is set.
 
+**Voice notes and videos.** Download the speech-to-text model once (faster-whisper small, about 500 MB, into `models/`), then set `STT_MODE=whisper` in `.env`:
+
+```bash
+python tools/download_models.py
+```
+
+Recordings up to 3 minutes are converted with ffmpeg, transcribed on the CPU, masked, and checked by the same rules as a text message. A voice note is never "verified", and there is no fake-voice detector: the reply says so. If `AUDIO_SERVICE_URL` is set, that service's `spoof_likely` answer is used as one weak signal; if it is unset or down, it is skipped.
+
 **Offline mode.** With `LLM_MODE=off STT_MODE=off AUDIO_MODEL=off`, everything runs without AWS or internet. That is also how the tests run.
 
 ```bash
@@ -112,7 +120,7 @@ python tools/evaluate.py    # metrics on the test set
 
 ## Tech stack
 
-Python, FastAPI, SQLite, Tesseract OCR, pyHanko (PDF signatures), Amazon Transcribe (Hindi and Indian English), Amazon Bedrock (field extraction), an XLS-R + SLS audio anti-spoofing model, ReportLab (evidence packets). Deployed on AWS in the Mumbai region (`ap-south-1`).
+Python, FastAPI, SQLite, Tesseract OCR, pyHanko (PDF signatures), faster-whisper and ffmpeg (speech to text for Hindi and English, on the server), Amazon Bedrock (field extraction), ReportLab (evidence packets). Deployed on AWS in the Mumbai region (`ap-south-1`).
 
 ## Acknowledgements
 

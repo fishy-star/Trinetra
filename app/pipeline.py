@@ -15,9 +15,10 @@ from app.checks import issuer as issuer_check
 from app.checks.issuer import IssuerLookup
 from app.config import ENGINE_VERSION, settings
 from app.extract import fields as field_extractor
-from app.extract import ocr
-from app.extract.mask import mask_fields
-from app.models import Fields, Kind, Result
+from app.checks import lexicon
+from app.extract import ocr, speech, transcript
+from app.extract.mask import mask_fields, mask_text
+from app.models import Fields, Kind, Result, Signal
 from app.registry import known_fakes, normalize_payee
 
 log = logging.getLogger(__name__)
@@ -90,6 +91,31 @@ def analyse_file(data: bytes, *, sha256: str | None = None, **options) -> tuple[
     return analyse_text(text, kind=Kind.NOTICE, sha256=sha256, codes=codes, **options)
 
 
+def check_audio(data: bytes, **options) -> Result:
+    """A voice note, audio file or video. Raises speech.AudioError when the recording cannot be checked."""
+    return analyse_audio(data, **options)[0]
+
+
+def analyse_audio(
+    data: bytes, *, sha256: str | None = None, transcribe: Callable[[bytes], speech.Transcript] | None = None,
+    **options,
+) -> tuple[Result, Fields]:
+    """Transcribe, mask, then the same text checks and rule table as a forwarded message, as kind VOICE.
+
+    There is no fake-voice detector: the only media signal is the optional AUDIO_SERVICE_URL, and it is WEAK.
+    """
+    sha256 = sha256 or sha256_bytes(data)
+    heard = (transcribe or speech.transcribe)(data)
+    # The checks read the transcript with common speech-to-text mistakes folded and spoken amounts as digits;
+    # the reply shows what was actually heard. The reply follows the words' own script; with no words, the
+    # caller's fallback language, not a guess.
+    text = transcript.normalise(heard.text)
+    extra = speech.spoof_signal(heard.pcm) if is_readable(text) else []
+    identity = lexicon.RELATIVE_IDENTITY if lexicon.family_emergency(text) else None
+    return analyse_text(text, kind=Kind.VOICE, sha256=sha256, extra_signals=extra, claimed_identity=identity,
+                        heard=reply.heard_snippet(mask_text(heard.text)), **options)
+
+
 def analyse_text(
     text: str,
     *,
@@ -101,6 +127,9 @@ def analyse_text(
     issuers: IssuerLookup | None = None,
     codes: list[str] = (),
     issuer_context: dict | None = None,
+    extra_signals: list[Signal] = (),
+    heard: str = "",
+    claimed_identity: str | None = None,
 ) -> tuple[Result, Fields]:
     """The check, plus the unmasked fields. Only a report, after the user's consent, may keep those.
 
@@ -119,6 +148,8 @@ def analyse_text(
     readable = is_readable(text) or lone is not None
     if not readable:
         fields = Fields()
+    elif claimed_identity and not fields.claimed_identity:
+        fields.claimed_identity = claimed_identity  # e.g. a voice note from "a relative": a claim it cannot prove
     # A text too short to check still shows its script, so a one-word Hindi message is answered in Hindi.
     lang = lang or (reply.detect_lang(text) if readable or (kind is Kind.TEXT and text.strip()) else fallback_lang)
 
@@ -126,6 +157,7 @@ def analyse_text(
     issuer = issued.issuer or issuer_context
     signals = issued.signals + source.run(fields, issuer) + ask.run(fields, text, issuer) if readable else []
     signals += lone_items.notes(lone, fields, issuers)
+    signals += list(extra_signals) if readable else []
     domains = [f"domain:{lone_items.domain(u)}" for u in fields.urls]
     matched = readable and is_known_fake(sha256, fields.payees + domains, known)
 
@@ -145,10 +177,11 @@ def analyse_text(
         signals=signals,
         fields=mask_fields(fields),
         lang=lang,
-        reply=reply.build(v, signals, kind, lang, group, reviewed=row == "R1", verify=verify),
+        reply=reply.build(v, signals, kind, lang, group, reviewed=row == "R1", verify=verify, heard=heard),
         engine_version=ENGINE_VERSION,
         needs_review=verdict.needs_review(signals, issued.proven),
         reviewed=row == "R1",
         verify=verify_lines,
+        heard=heard if readable else "",
     )
     return result, fields

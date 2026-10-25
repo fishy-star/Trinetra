@@ -58,7 +58,7 @@ None.
 
 ## Not included yet
 
-- The voice checks (V1, V2, V3, V4) are not included yet: speech-to-text and the audio model are not wired up, and the recordings do not exist yet.
+- The voice checks (V1, V2, V3, V4) are not included yet: the recordings do not exist yet. Voice notes and videos are transcribed (faster-whisper) and checked by the same rules as text, with no fake-voice detector.
 
 ## Bugs fixed during this run
 

@@ -265,3 +265,25 @@ def claimed_identity(text: str, named_sender: str | None) -> str | None:
     if named_sender is None and UNNAMED_BANK.search(text):
         return "your bank"
     return None
+
+
+# --- a relative in trouble asking for money (voice notes only: a voice cannot prove who is speaking) -------
+
+RELATIVE = _c(
+    r"\b(?:beta|beti|papa|mummy|mumma|mom|mum|dad|daddy|bhaiya|bhai|didi|chacha|mama|nana|nani|dadi)\b",
+    r"\b(?:your|ur)\s+(?:son|daughter|brother|sister|nephew|niece|grandson|granddaughter|husband|wife)\b",
+    rf"{L}(?:बेटा|बेटी|पापा|मम्मी|माँ|मां|भैया|भाई|दीदी|चाचा|मामा|नाना|नानी|दादी|दादा){R}",
+)
+TROUBLE = _c(
+    r"\b(?:hospital|accident|police|stuck|jail|arrested|emergency|kidnapped|thana|musibat|phas\s*gaya|phans\s*gaya)\b",
+    r"\blost my (?:phone|wallet|bag|passport)\b",
+    rf"{L}(?:अस्पताल|हॉस्पिटल|एक्सीडेंट|दुर्घटना|पुलिस|थाने|थाना|मुसीबत|जेल|इमरजेंसी)",
+    rf"{L}फं?स\s*(?:गया|गई|गयी)",
+)
+RELATIVE_IDENTITY = "a relative"
+
+
+def family_emergency(text: str) -> bool:
+    """A claimed relative, some trouble, and a request for money."""
+    return bool(RELATIVE.search(text) and TROUBLE.search(text)
+                and (asks_for_money(text) or payment_sentences(text)))

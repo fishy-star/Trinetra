@@ -55,6 +55,34 @@ ACTION_VOICE = {
     "en": "Call the person back on the number you already have for them before you send anything.",
     "hi": "कुछ भी भेजने से पहले उस व्यक्ति को उस नंबर पर वापस कॉल करें जो आपके पास पहले से है।",
 }
+# Voice notes and videos: what we heard, and what we do and do not check.
+HEARD = {"en": 'We heard: "{text}"', "hi": 'हमने सुना: "{text}"'}
+VOICE_SCOPE = {
+    "en": "We check what the message asks for. We don't judge whether the voice is real.",
+    "hi": "हम यह जाँचते हैं कि संदेश में क्या माँगा गया है। हम यह तय नहीं करते कि आवाज़ असली है या नहीं।",
+}
+UNCLEAR_SPEECH = {
+    "en": "We couldn't make out the words. Please send the text or a clearer recording.",
+    "hi": "हम शब्द साफ़ नहीं समझ सके। कृपया टेक्स्ट या साफ़ रिकॉर्डिंग भेजें।",
+}
+HEARD_MAX_CHARS = 120
+
+
+def heard_snippet(text: str) -> str:
+    """One line of the (already masked) transcript, cut at a word boundary."""
+    text = " ".join(text.split())
+    if len(text) <= HEARD_MAX_CHARS:
+        return text
+    cut = text[:HEARD_MAX_CHARS].rsplit(" ", 1)[0]
+    return f"{cut}…"
+
+
+def _voice_lines(kind: Kind, verdict: Verdict, lang: str, heard: str) -> list[str]:
+    if kind is not Kind.VOICE or verdict is Verdict.COULD_NOT_CHECK:
+        return []
+    return [*([HEARD[lang].format(text=heard)] if heard else []), VOICE_SCOPE[lang]]
+
+
 FOOTER_UNREVIEWED = {
     "en": "Automated checks. A person has not yet reviewed this result.",
     "hi": "स्वचालित जाँच। किसी व्यक्ति ने अभी इसकी समीक्षा नहीं की है।",
@@ -133,6 +161,7 @@ def build(
     sender: str = "general",
     reviewed: bool = False,
     verify: str | None = None,
+    heard: str = "",
 ) -> str:
     """`sender` is the group from `sender_group`: "authority", "finance" or "general".
 
@@ -141,6 +170,8 @@ def build(
     """
     if verdict is Verdict.COULD_NOT_CHECK and kind is Kind.TEXT:
         parts = [" ".join(TOO_SHORT[lang])]
+    elif verdict is Verdict.COULD_NOT_CHECK and kind is Kind.VOICE:
+        parts = [UNCLEAR_SPEECH[lang]]
     else:
         parts = [VERDICT_LINE[lang][verdict]]
     if verdict is not Verdict.COULD_NOT_CHECK:
@@ -158,8 +189,9 @@ def build(
             )
         else:
             parts.append(ACTION_FAKE[sender][lang])
-    if kind is Kind.VOICE:
+    if kind is Kind.VOICE and verdict is not Verdict.COULD_NOT_CHECK:
         parts.append(ACTION_VOICE[lang])
+    parts += _voice_lines(kind, verdict, lang, heard)
     parts.append((FOOTER_REVIEWED if reviewed else FOOTER_UNREVIEWED)[lang])
     return "\n\n".join(parts)
 
@@ -267,11 +299,16 @@ def strongest_reason(verdict: Verdict, signals: list[Signal], lang: str, reviewe
 
 
 def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender: str = "general",
-          reviewed: bool = False) -> str:
-    """The bot's reply: verdict line, the strongest reason, one action line, one line of review status."""
+          reviewed: bool = False, heard: str = "") -> str:
+    """The bot's reply: verdict line, the strongest reason, one action line, one line of review status.
+
+    A voice note or video adds what we heard and that we do not judge the voice itself.
+    """
     if verdict is Verdict.COULD_NOT_CHECK and kind is Kind.TEXT:
         line, action = TOO_SHORT[lang]
         return "\n\n".join([line, action, FOOTER_SHORT[reviewed][lang]])
+    if verdict is Verdict.COULD_NOT_CHECK and kind is Kind.VOICE:
+        return "\n\n".join([UNCLEAR_SPEECH[lang], FOOTER_SHORT[reviewed][lang]])
     if kind is Kind.VOICE and verdict is not Verdict.COULD_NOT_CHECK:
         action = SHORT_ACTION_VOICE[lang]
     elif verdict in (Verdict.LIKELY_FAKE, Verdict.SUSPICIOUS):
@@ -279,7 +316,8 @@ def short(verdict: Verdict, signals: list[Signal], kind: Kind, lang: str, sender
     else:
         action = SHORT_ACTION[verdict][lang]
     reason = strongest_reason(verdict, signals, lang, reviewed)
-    parts = [SHORT_VERDICT[lang][verdict], *([reason] if reason else []), action, FOOTER_SHORT[reviewed][lang]]
+    parts = [SHORT_VERDICT[lang][verdict], *([reason] if reason else []), action,
+             *_voice_lines(kind, verdict, lang, heard), FOOTER_SHORT[reviewed][lang]]
     return "\n\n".join(parts)
 
 

@@ -26,7 +26,7 @@ from pathlib import Path
 from app import pipeline, reply
 from app.config import ENGINE_VERSION
 from app.evidence import EXTENSIONS, EvidenceStore, MediaDir, sha256_of
-from app.extract import ocr
+from app.extract import ocr, speech
 from app.extract.mask import mask_text
 from app.models import Kind, Result, Verdict
 from app.samples import sample_paths
@@ -132,7 +132,12 @@ MESSAGES = {
         "deleted": "Your data has been erased. Items already in an approved evidence packet are kept, because they "
         "are evidence in a reported case. Forward anything to check it again.",
         "checking": "Checking… this takes up to a minute.",
-        "media_soon": "We can't check voice or video yet. Please send the text or a screenshot.",
+        "listening": "Listening… this takes up to a minute.",
+        "audio_unreadable": "We couldn't open this recording. Please send it again, or send the text or a screenshot.",
+        "audio_too_long": "This recording is longer than 3 minutes. Please send a shorter one, or the text or a "
+        "screenshot.",
+        "audio_timeout": "This recording took too long to check. Please try again, or send the text or a screenshot.",
+        "audio_off": "We can't check voice or video on this server right now. Please send the text or a screenshot.",
         "unsupported": "We can check photos (JPG or PNG) and PDFs. Please send the notice in one of those formats.",
         "too_large": "This file is too large. Send a photo under 5 MB or a PDF under 100 MB.",
         "report_confirm": "Report this to the Trinetra team? Your file will be kept as evidence. Reply YES to confirm.",
@@ -154,7 +159,11 @@ MESSAGES = {
         "deleted": "आपका डेटा मिटा दिया गया है। जो फ़ाइलें किसी स्वीकृत साक्ष्य पैकेट में हैं, वे रखी जाती हैं, क्योंकि वे "
         "किसी रिपोर्ट किए गए मामले में साक्ष्य हैं। किसी भी चीज़ की फिर से जाँच के लिए उसे फ़ॉरवर्ड करें।",
         "checking": "जाँच हो रही है… इसमें एक मिनट तक लग सकता है।",
-        "media_soon": "हम अभी वॉइस या वीडियो की जाँच नहीं कर सकते। कृपया टेक्स्ट या स्क्रीनशॉट भेजें।",
+        "listening": "सुन रहे हैं… इसमें एक मिनट तक लग सकता है।",
+        "audio_unreadable": "हम यह रिकॉर्डिंग नहीं खोल सके। कृपया इसे फिर से भेजें, या टेक्स्ट या स्क्रीनशॉट भेजें।",
+        "audio_too_long": "यह रिकॉर्डिंग 3 मिनट से लंबी है। कृपया छोटी रिकॉर्डिंग, या टेक्स्ट या स्क्रीनशॉट भेजें।",
+        "audio_timeout": "इस रिकॉर्डिंग की जाँच में बहुत समय लगा। कृपया फिर से कोशिश करें, या टेक्स्ट या स्क्रीनशॉट भेजें।",
+        "audio_off": "हम अभी इस सर्वर पर वॉइस या वीडियो की जाँच नहीं कर सकते। कृपया टेक्स्ट या स्क्रीनशॉट भेजें।",
         "unsupported": "हम फ़ोटो (JPG या PNG) और PDF की जाँच कर सकते हैं। कृपया नोटिस इनमें से किसी रूप में भेजें।",
         "too_large": "यह फ़ाइल बहुत बड़ी है। 5 MB से छोटी फ़ोटो या 100 MB से छोटी PDF भेजें।",
         "report_confirm": "इसे Trinetra टीम को रिपोर्ट करें? आपकी फ़ाइल साक्ष्य के रूप में रखी जाएगी। पुष्टि के लिए YES भेजें।",
@@ -218,6 +227,7 @@ class Answer:
     reviewed: bool
     verify: dict  # language -> where to check at the source
     rule_row: str = ""
+    heard: str = ""  # voice and video: what we heard, masked and trimmed
 
 
 YES = {"YES", "Y", "हाँ", "हां"}
@@ -226,7 +236,7 @@ ENGLISH = {"ENGLISH", "अंग्रेज़ी", "अंग्रेजी"}
 
 
 # WhatsApp limits, which we apply on every channel.
-MAX_BYTES = {"png": 5 * 1024 * 1024, "jpeg": 5 * 1024 * 1024, "pdf": 100 * 1024 * 1024}
+MAX_BYTES = {"png": 5 * 1024 * 1024, "jpeg": 5 * 1024 * 1024, "pdf": 100 * 1024 * 1024, "audio": 16 * 1024 * 1024}
 IMAGE_TYPES = ("png", "jpeg")
 
 
@@ -251,12 +261,20 @@ def is_voice_or_video(msg: Inbound) -> bool:
     return msg.media in AV_MEDIA or (msg.media == "document" and (msg.mime or "").startswith(("audio/", "video/")))
 
 
-def sniff_av(data: bytes) -> bool:
-    """Audio or video by magic bytes: OGG, MP3, M4A/MP4/MOV, WAV, WebM/MKV, FLAC, AMR."""
+def sniff_av(data: bytes) -> str | None:
+    """Audio or video by magic bytes: OGG, MP3, M4A/MP4/MOV, WAV, WebM/MKV, FLAC, AMR. None if it is neither."""
     head = data[:16]
-    return (head.startswith((b"OggS", b"ID3", b"\x1aE\xdf\xa3", b"fLaC", b"#!AMR"))
-            or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0)
-            or head[4:8] == b"ftyp" or (head.startswith(b"RIFF") and head[8:12] in (b"WAVE", b"AVI ")))
+    for magic, kind in ((b"OggS", "ogg"), (b"ID3", "mp3"), (b"\x1aE\xdf\xa3", "webm"), (b"fLaC", "flac"),
+                        (b"#!AMR", "amr")):
+        if head.startswith(magic):
+            return kind
+    if len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0:
+        return "mp3"
+    if head[4:8] == b"ftyp":
+        return "mp4"
+    if head.startswith(b"RIFF") and head[8:12] in (b"WAVE", b"AVI "):
+        return "wav" if head[8:12] == b"WAVE" else "avi"
+    return None
 
 
 def declared_type(msg: Inbound) -> str | None:
@@ -275,6 +293,7 @@ class Intake:
         salt: str,
         check: Callable[..., Result] = pipeline.check_text,
         check_file: Callable[..., Result] = pipeline.check_file,
+        analyse_audio: Callable[..., tuple[Result, object]] = pipeline.analyse_audio,
         data_dir: Path | None = None,
         media_ttl_hours: int = 24,
         samples: Callable[[], list[Path]] | None = None,
@@ -285,6 +304,9 @@ class Intake:
         self._salt = salt.encode()
         self._check = check
         self._check_file = check_file
+        self._analyse_audio = analyse_audio
+        # What a recording said, masked and trimmed, kept in memory only so a repeat forward can show it again.
+        self._heard: OrderedDict[str, str] = OrderedDict()
         data_dir = data_dir or store.path.parent
         self.media = MediaDir(data_dir / "media")
         self.evidence = EvidenceStore(data_dir / "evidence")
@@ -365,9 +387,7 @@ class Intake:
             # A button's data is never something to check, even an old or unknown button.
             log.info("ignored a button press with unknown data")
         elif is_voice_or_video(msg):
-            # Voice and video checks are not built yet: never crash, say so, and count it as "could not check".
-            self.store.record_check(Kind.VOICE.value, msg.channel, Verdict.COULD_NOT_CHECK.value)
-            send(say["media_soon"])
+            self._recording(uid, chosen_lang(user["lang"], app_lang), lang, msg, say, send)
         elif msg.media in ("photo", "document"):
             self._file(uid, chosen_lang(user["lang"], app_lang), lang, msg, say, send)
         elif msg.media:
@@ -524,7 +544,8 @@ class Intake:
                       cached.rule_row == "R1", verify, cached.rule_row)
 
     def _send_answer(self, key: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
-        text = reply.short(answer.verdict, answer.signals, answer.kind, lang, answer.sender, answer.reviewed)
+        text = reply.short(answer.verdict, answer.signals, answer.kind, lang, answer.sender, answer.reviewed,
+                           answer.heard)
         send(Out(text, rows=verdict_rows(key, answer.verdict, lang)))
 
     def _remember(self, uid: str, key: str, answer: Answer) -> None:
@@ -574,6 +595,37 @@ class Intake:
         self._run(uid, sha, Kind.NOTICE, data, EXTENSIONS[actual], pref, say, send, check, fallback_lang=lang,
                   channel=msg.channel)
 
+    def _recording(self, uid: str, pref: str | None, lang: str, msg: Inbound, say: dict[str, str],
+                   send: Callable[[str], None]) -> None:
+        """A voice note, audio file, round video or video: transcribed, then the same checks as a text message."""
+        if msg.fetch is None:
+            send(say["unsupported"])
+            return
+        if msg.file_size and msg.file_size > MAX_BYTES["audio"]:
+            send(say["too_large"])
+            return
+        if not self._allowed(uid, say, send):
+            return
+        try:
+            data = msg.fetch()
+        except Exception:
+            log.exception("download failed channel=%s", msg.channel)
+            send(say["error"])
+            return
+        actual = sniff_av(data)
+        if actual is None:
+            self.store.record_check(Kind.VOICE.value, msg.channel, Verdict.COULD_NOT_CHECK.value)
+            send(say["audio_unreadable"])
+            return
+        if len(data) > MAX_BYTES["audio"]:
+            send(say["too_large"])
+            return
+        sha = pipeline.sha256_bytes(data)
+        check = lambda: self._analyse_audio(data, sha256=sha, lang=pref, fallback_lang=lang,  # noqa: E731
+                                            **self._lookups())[0]
+        self._run(uid, sha, Kind.VOICE, data, EXTENSIONS[actual], pref, say, send, check, fallback_lang=lang,
+                  channel=msg.channel)
+
     def _run(
         self,
         uid: str,
@@ -609,13 +661,19 @@ class Intake:
             verify = {lg: reply.verify_line(cached.sender_type, cached.sender_id, lg) for lg in ("en", "hi")}
             self.store.record_check(kind.value, channel, cached.verdict.value)
             answer = Answer(cached.verdict, cached.signals, cached.kind, group, cached.rule_row == "R1", verify,
-                            cached.rule_row)
+                            cached.rule_row, self._heard.get(sha, ""))
             self._deliver(uid, sha, answer, reply_lang, send)
             return
 
-        send(say["checking"])
+        send(say["listening" if kind is Kind.VOICE else "checking"])
         try:
             result = check()
+        except speech.AudioError as e:
+            # A corrupt, too long or unclear-to-the-machine recording: a polite message, "could not check".
+            log.info("recording not checked sha256=%s: %s", sha[:12], type(e).__name__)
+            self.store.record_check(kind.value, channel, Verdict.COULD_NOT_CHECK.value)
+            send(say[e.key])
+            return
         except Exception:
             log.exception("check failed sha256=%s", sha[:12])
             send(say["error"])
@@ -624,8 +682,13 @@ class Intake:
         log.info("checked kind=%s verdict=%s row=%s", result.kind.value, result.verdict.value, result.rule_row)
         self.store.record_check(kind.value, channel, result.verdict.value)
         group = reply.sender_group(result.fields.sender_type, result.fields.sender_id)
+        if result.heard:
+            with self._lock:
+                self._heard[sha] = result.heard
+                while len(self._heard) > ANSWERS_KEPT:
+                    self._heard.popitem(last=False)
         answer = Answer(result.verdict, result.signals, result.kind, group, result.reviewed, result.verify,
-                        result.rule_row)
+                        result.rule_row, result.heard)
         self._deliver(uid, sha, answer, result.lang, send)
 
     def _deliver(self, uid: str, sha: str, answer: Answer, lang: str, send: Callable[[str], None]) -> None:
@@ -692,6 +755,8 @@ class Intake:
             path = self.evidence.put(data, sha, Path(item["media_path"]).suffix)
             if kind is Kind.TEXT:
                 result, fields = pipeline.analyse_text(data.decode("utf-8"), sha256=sha, lang=pref, **self._lookups())
+            elif kind is Kind.VOICE:
+                result, fields = self._analyse_audio(data, sha256=sha, lang=pref, **self._lookups())
             else:
                 result, fields = pipeline.analyse_file(
                     data, sha256=sha, lang=pref, fallback_lang=lang, **self._lookups()

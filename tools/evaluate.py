@@ -112,7 +112,7 @@ def run(split: str) -> list[Row]:
         row = Row(item_id(r["file"]), r["file"], r["kind"], r["format"], r["lang"], r["truth"],
                   r["expected_verdict"], r["must_never_be"])
         if r["kind"] not in ("text", "notice"):
-            row.skipped = "voice notes are checked from milestone 5 (not built yet)"
+            row.skipped = "the recording does not exist yet (record it from voice_scripts.md)"
             rows.append(row)
             continue
         start = time.perf_counter()
@@ -307,8 +307,9 @@ def markdown(rows: list[Row], split: str, console: list[str], fixes: list[str] =
     md += ["## Not included yet", ""]
     voice = [r for r in s["skipped"] if r.kind == "voice"]
     if voice:
-        md.append(f"- The voice checks ({', '.join(r.item for r in voice)}) are not included yet: speech-to-text "
-                  "and the audio model are not wired up, and the recordings do not exist yet.")
+        md.append(f"- The voice checks ({', '.join(r.item for r in voice)}) are not included yet: the recordings do not "
+                  "exist yet. Voice notes and videos are transcribed (faster-whisper) and checked by the same rules "
+                  "as text, with no fake-voice detector.")
     md += [f"- `{r.file}`: {r.skipped}" for r in s["skipped"] if r.kind != "voice"]
     if not s["skipped"]:
         md.append("Nothing; every item in the split was run.")

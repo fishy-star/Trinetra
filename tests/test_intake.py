@@ -118,18 +118,6 @@ def test_delete_before_consent(intake):
     assert Chat(intake).say("DELETE") == [NOTHING_STORED["en"]]
 
 
-def test_voice_and_video_are_coming_soon_in_users_language(chat):
-    assert chat.say(media="video") == [MESSAGES["en"]["media_soon"]]
-    chat.say("HINDI")
-    assert chat.say(media="voice") == [MESSAGES["hi"]["media_soon"]]
-
-
-def test_media_language_falls_back_to_client_language(intake):
-    c = Chat(intake, lang_hint="hi")
-    c.say("YES")
-    assert c.say(media="voice") == [MESSAGES["hi"]["media_soon"]]
-
-
 def test_already_paid(chat):
     assert chat.say("2") == [ALREADY_PAID["en"]]
 

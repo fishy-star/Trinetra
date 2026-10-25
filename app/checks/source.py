@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.checks import lexicon
 from app.extract.fields import is_mobile
 from app.models import Fields, PointsTo, Signal, Strength
 from app.registry import GOVERNMENT_TYPES, OFFICIAL_TYPES, is_official_domain, is_official_payee, normalize_payee
@@ -89,7 +90,12 @@ def unverifiable_identity(fields: Fields) -> Signal | None:
     who = fields.claimed_identity
     if not who:
         return None
-    if who == "your bank":
+    if who == lexicon.RELATIVE_IDENTITY:
+        en = ("It sounds like a relative in trouble asking for money. A voice cannot prove who is speaking: "
+              "voices can be copied.")
+        hi = ("यह किसी मुसीबत में फँसे रिश्तेदार जैसा लगता है जो पैसे माँग रहा है। आवाज़ से साबित नहीं होता कि कौन बोल रहा है: "
+              "आवाज़ की नकल की जा सकती है।")
+    elif who == "your bank":
         en = "It says it is from your bank but never says which bank, so you cannot check it."
         hi = "यह कहता है कि यह आपके बैंक से है, लेकिन बैंक का नाम नहीं बताता, इसलिए आप इसकी जाँच नहीं कर सकते।"
     else:

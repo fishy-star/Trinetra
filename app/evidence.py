@@ -16,8 +16,13 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-EXTENSIONS = {"png": ".png", "jpeg": ".jpg", "pdf": ".pdf", "text": ".txt"}
-CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8"}
+EXTENSIONS = {"png": ".png", "jpeg": ".jpg", "pdf": ".pdf", "text": ".txt",
+              "ogg": ".ogg", "mp3": ".mp3", "mp4": ".mp4", "wav": ".wav", "webm": ".webm", "flac": ".flac",
+              "amr": ".amr", "avi": ".avi"}
+CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+                 ".ogg": "audio/ogg", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".wav": "audio/wav",
+                 ".webm": "video/webm", ".flac": "audio/flac", ".amr": "audio/amr", ".avi": "video/x-msvideo"}
+RECORDINGS = (".ogg", ".mp3", ".mp4", ".wav", ".webm", ".flac", ".amr", ".avi")
 
 
 class IntegrityError(Exception):

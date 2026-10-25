@@ -24,6 +24,7 @@ class Settings:
     llm_mode: str
     stt_mode: str
     audio_model: str
+    audio_service_url: str | None
     reviewers: tuple[str, ...]
     reviewer_password: str | None
     data_dir: Path
@@ -52,6 +53,7 @@ class Settings:
             llm_mode=env("LLM_MODE", "off"),
             stt_mode=env("STT_MODE", "off"),
             audio_model=env("AUDIO_MODEL", "off"),
+            audio_service_url=env("AUDIO_SERVICE_URL") or None,  # optional spoof service; a WEAK signal only
             reviewers=tuple(r.strip() for r in env("REVIEWERS", "").split(",") if r.strip()),
             reviewer_password=env("REVIEWER_PASSWORD"),
             data_dir=ROOT / env("DATA_DIR", "data/runtime"),  # a relative path is taken from the repo root

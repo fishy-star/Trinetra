@@ -1,4 +1,4 @@
-"""Disputes ("this message is actually genuine"), the web page's report and already-paid, and voice or video files."""
+"""Disputes ("this message is actually genuine"), and the web page's report and already-paid."""
 
 import csv
 import re
@@ -13,8 +13,6 @@ from app.pipeline import check_text, sha256_text
 from app.reply import ALREADY_PAID
 from app.store import Store
 from tests.test_judge_mode import TEXTS
-
-VOICE_EN = "We can't check voice or video yet. Please send the text or a screenshot."
 
 
 @pytest.fixture
@@ -295,33 +293,3 @@ def test_web_helpful_does_not_ask(web):
     page = web.post("/check", data={"text": TEXTS["T1"]}).text
     fields = {k: hidden(page, k) for k in ("sha", "verdict", "token")}
     assert DISPUTE_ASK["en"] not in web.post("/feedback", data={**fields, "vote": "helpful"}).text
-
-
-# --- voice, audio and video --------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("media,mime", [("voice", None), ("audio", "audio/mpeg"), ("video", "video/mp4"),
-                                        ("video_note", None), ("document", "audio/ogg"), ("document", "video/quicktime")])
-def test_voice_and_video_get_a_plain_could_not_check_reply(intake, store, media, mime):
-    say(intake, "YES")
-
-    def fetch():
-        raise AssertionError("voice and video are never downloaded")
-
-    out = say(intake, media=media, mime=mime, file_size=1000, fetch=fetch)
-    assert [str(o) for o in out] == [VOICE_EN]
-    assert store.stats()["by_verdict"] == {"could_not_check": 1} and store.stats()["by_kind"] == {"voice": 1}
-
-
-def test_voice_reply_in_hindi(intake):
-    say(intake, "YES")
-    say(intake, "HINDI")
-    assert [str(o) for o in say(intake, media="voice", file_size=10)] == [MESSAGES["hi"]["media_soon"]]
-
-
-@pytest.mark.parametrize("data", [b"OggS\x00\x02" + b"\x00" * 40, b"ID3\x04" + b"\x00" * 40,
-                                  b"\x00\x00\x00\x20ftypM4A " + b"\x00" * 40, b"RIFF\x00\x00\x00\x00WAVEfmt "])
-def test_web_upload_of_audio_or_video_does_not_crash(web, store, data):
-    resp = web.post("/check", files={"file": ("note.pdf", data, "application/pdf")})
-    assert resp.status_code == 200 and VOICE_EN.replace("'", "&#x27;") in resp.text
-    assert store.stats()["by_verdict"] == {"could_not_check": 1}

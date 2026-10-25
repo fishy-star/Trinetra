@@ -28,7 +28,7 @@ from app.config import settings
 from app.console import router as console_router
 from app.portal import router as portal_router
 from app.evidence import EXTENSIONS, EvidenceStore, MediaDir
-from app.extract import ocr
+from app.extract import ocr, speech
 from app.auth import client_of
 from app.intake import (DISPUTE_ASK, DISPUTE_THANKS, LABELS, MAX_BYTES, MESSAGES, NOTE_MAX_CHARS, NOTE_THANKS,
                         VERDICT_CODES, Intake, sniff_av)
@@ -192,10 +192,11 @@ def _page(text: str = "", reply: str | None = None, lang: str = "", verdict: str
   <input type="hidden" name="lang" value="{lang}">
   <label class="dropzone" for="file">
     <span class="icon" aria-hidden="true">⇪</span>
-    {t("Upload a photo or PDF", "फ़ोटो या PDF अपलोड करें", "span", ' class="big"')}
-    {t("Tap to choose, or drag it here. JPG, PNG or PDF.", "चुनने के लिए टैप करें, या यहाँ खींचकर लाएँ। JPG, PNG या PDF।",
+    {t("Upload a photo, PDF, voice note or video", "फ़ोटो, PDF, वॉइस नोट या वीडियो अपलोड करें", "span", ' class="big"')}
+    {t("Tap to choose, or drag it here. JPG, PNG, PDF, or a recording up to 3 minutes.",
+       "चुनने के लिए टैप करें, या यहाँ खींचकर लाएँ। JPG, PNG, PDF, या 3 मिनट तक की रिकॉर्डिंग।",
        "span", ' class="muted"')}
-    <input id="file" name="file" type="file" accept="image/png,image/jpeg,application/pdf">
+    <input id="file" name="file" type="file" accept="image/png,image/jpeg,application/pdf,audio/*,video/*">
     <span class="chosen" aria-live="polite"></span>
   </label>
   <div class="or">{t("or", "या")}</div>
@@ -269,10 +270,9 @@ async def check_form(
         data = await file.read(MAX_BYTES["pdf"] + 1)
         kind = ocr.sniff(data)  # by magic bytes, never by file name
         if kind is None:
-            if sniff_av(data):  # voice and video checks are not built yet: say so, never crash
-                if store:
-                    store.record_check(Kind.VOICE.value, "web", Verdict.COULD_NOT_CHECK.value)
-                return _page(text, say["media_soon"], lang)
+            av = sniff_av(data)
+            if av:
+                return await _check_recording(data, av, text, lang, store)
             return _page(text, say["unsupported"], lang)
         if len(data) > MAX_BYTES[kind]:
             return _page(text, say["too_large"], lang)
@@ -287,6 +287,22 @@ async def check_form(
     result = pipeline.check_text(text, lang=lang or None, **lookups(store))
     _count(store, result, "web")
     token = held.put(text.encode("utf-8"), Kind.TEXT, ".txt", result)
+    return _page(text, result.reply, lang, result.verdict.value, result.lang, result.sha256, token)
+
+
+async def _check_recording(data: bytes, av: str, text: str, lang: str, store: Store | None) -> HTMLResponse:
+    """A voice note or video: transcribed off the event loop (60-second limit), then the text checks."""
+    say = MESSAGES[lang or "en"]
+    if len(data) > MAX_BYTES["audio"]:
+        return _page(text, say["too_large"], lang)
+    try:
+        result = await run_in_threadpool(partial(pipeline.check_audio, data, lang=lang or None, **lookups(store)))
+    except speech.AudioError as e:
+        if store:
+            store.record_check(Kind.VOICE.value, "web", Verdict.COULD_NOT_CHECK.value)
+        return _page(text, say[e.key], lang)
+    _count(store, result, "web")
+    token = held.put(data, Kind.VOICE, EXTENSIONS[av], result)
     return _page(text, result.reply, lang, result.verdict.value, result.lang, result.sha256, token)
 
 
@@ -422,6 +438,8 @@ def report(
         path = evidence.put(h.data, sha, h.ext)
         if h.kind is Kind.TEXT:
             result, fields = pipeline.analyse_text(h.data.decode("utf-8"), sha256=sha, lang=h.result.lang, **lookups(store))
+        elif h.kind is Kind.VOICE:
+            result, fields = pipeline.analyse_audio(h.data, sha256=sha, lang=h.result.lang, **lookups(store))
         else:
             result, fields = pipeline.analyse_file(h.data, sha256=sha, lang=h.result.lang, **lookups(store))
         case = store.add_report(NewReport(sha, "web", h.kind, len(h.data), str(path), result, fields, report_payees(fields)))
